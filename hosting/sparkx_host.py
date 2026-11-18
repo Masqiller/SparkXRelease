@@ -252,6 +252,13 @@ def unit_start(unit, argv, log, mem='', cpus=0, env=None):
     return subprocess.Popen(cmd + argv, stdout=open(log, 'w'), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env)
 
 
+def port_in_use(port):
+    import socket
+    with socket.socket() as so:
+        so.settimeout(0.5)
+        return so.connect_ex(('127.0.0.1', port)) == 0
+
+
 def cpu_controller():
     try:
         p = f'/sys/fs/cgroup/user.slice/user-{os.getuid()}.slice/user@{os.getuid()}.service/cgroup.controllers'
@@ -384,6 +391,9 @@ def run(zip_path, world, c, job=None, gui=False, time_limit=0.0):
         for unit in (ORG_UNIT, TEAM_UNIT, 'sparkx-main'):
             if unit_active(unit):
                 raise RuntimeError(f'a simulation is already running ({unit}.scope); stop it first')
+        if port_in_use(int(c['dashboard_port'])):     # e.g. someone's own "ros2 launch sparkx_bringup practice.launch.py"
+            raise RuntimeError(f'port {c["dashboard_port"]} is in use: another SparkX simulation (a referee dashboard) seems '
+                               'to be running on this machine. Stop it (Ctrl+C in its terminal) first')
         avail = int(subprocess.run(['free', '-m'], capture_output=True, text=True).stdout.splitlines()[1].split()[6])
         if avail < c['min_free_mb']:
             raise RuntimeError(f'only {avail} MB of memory available, {c["min_free_mb"]} MB wanted (host_config.json)')

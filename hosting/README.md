@@ -15,11 +15,12 @@ Who uses it:
 - **Teams**: may use `check` (section 4) to make sure their own zip will be accepted before they upload it.
 
 Everything below runs from the root of your clone of this branch. In the examples that folder is
-called `$SPARKX`. Set it once per terminal, or add the line to `~/.bashrc`:
+called `$SPARKX_EVAL` (the training material calls a participant's clone of `main` `$SPARKX`; keep
+the two apart). Set it once per terminal, or add the line to `~/.bashrc`:
 
 ```bash
-export SPARKX=~/SparkXEval        # wherever you cloned the evaluator branch
-cd $SPARKX
+export SPARKX_EVAL=~/SparkXEval   # wherever you cloned the evaluator branch
+cd $SPARKX_EVAL
 ```
 
 ## 1. What the machine needs
@@ -30,7 +31,8 @@ cd $SPARKX
   - The simulator and referee need about 2.5–3 GB for a medium world.
   - A team's software is limited to 8 GB by default.
   - 16 GB of RAM is comfortable for the small world. Use more for large worlds.
-- **One evaluation at a time.** The tool refuses to start a run while another simulation is running.
+- **One evaluation at a time.** The tool refuses to start a run while one of its own runs is on, or while
+  anything else serves the referee dashboard port (8080), i.e. another SparkX simulation. Close any Gazebo you started yourself.
 
 ## 2. Get the evaluator branch
 
@@ -38,7 +40,7 @@ Use a folder of its own, separate from any team work:
 
 ```bash
 git clone -b evaluator https://github.com/Masqiller/SparkXRelease.git ~/SparkXEval
-export SPARKX=~/SparkXEval && cd $SPARKX
+export SPARKX_EVAL=~/SparkXEval && cd $SPARKX_EVAL
 git branch                         # * evaluator
 ```
 
