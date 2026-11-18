@@ -1,0 +1,10 @@
+{
+ "team_memory": "8G",
+ "team_cpus": 8,
+ "org_memory": "",
+ "textures": "full",
+ "sandbox": "auto",
+ "min_free_mb": 0,
+ "extra_setup": [],
+ "team_visible_paths": []
+}

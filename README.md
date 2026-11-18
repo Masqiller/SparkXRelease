@@ -1,3 +1,10 @@
+> **You are on the `evaluator` branch.** It is the `main` branch unchanged, plus the
+> [`hosting/`](hosting/) folder: the tool that checks a team's submission zip, builds it into a
+> clean copy of this stack, runs it on a world and keeps the leaderboard. Evaluators start at
+> [`hosting/README.md`](hosting/README.md). Teams work on `main`
+> (`git clone https://github.com/Masqiller/SparkXRelease.git`); they may use
+> `python3 hosting/sparkx_host.py check <zip>` from this branch to test their own hand-in.
+
 # SparkX Disaster Response Challenge — Team Kit
 
 **SparkX Robotics & AI Challenge · AI theme · powered by Airoot × STEMLearn.AI**
