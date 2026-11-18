@@ -177,7 +177,7 @@ Where the results are:
 
 | Path | What |
 |---|---|
-| `hosting/results/runs/<date>_<team>_<world>/summary.json` | the score: `official_score`, `final_score`, `breakdown`, `rescued`, `finish_reason`, `disqualified`, `rule_violations`, `stack_integrity` |
+| `hosting/results/runs/<date>_<team>_<world>/summary.json` | the score: `official_score`, `final_score`, `score_breakdown`, `rescued`, `finish_reason`, `disqualified`, `rule_violations`, `stack_integrity` |
 | `…/events.jsonl`, `…/team_map.png`, `…/evidence/` | every scored event, the team's map, the snapshots sent with rescue reports |
 | `…/host.json` | which zip ran (its SHA-256), whether it was sandboxed, the memory limit |
 | `hosting/results/team_logs/<date>_<team>_<world>/` | `team.log` (the team's own output: look here when their code crashed), `organiser.log`, `roslog/` |
@@ -239,7 +239,7 @@ The total is the sum, over all worlds, of each team's best official score on tha
 5. In `summary.json`:
    - `disqualified` is false;
    - `rule_violations` is empty;
-   - `stack_integrity.status` is `OK`;
+   - `stack_integrity.status` is `ok`;
    - `finish_reason` makes sense.
 6. If the run ended early, read `team.log`. A crash in the team's code counts as their result, but a
    machine problem does not: then run it again.
