@@ -11,6 +11,7 @@
   <depend>sparkx_worlds</depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
   <depend>std_srvs</depend>
   <depend>ros_gz_interfaces</depend>
   <depend>tf2_ros</depend>

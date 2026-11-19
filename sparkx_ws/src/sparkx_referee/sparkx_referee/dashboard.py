@@ -3,9 +3,16 @@
 Shows live score, timer, events, robot track over the ground-truth map, survivors, hints, the
 stack-integrity result and rule violations. It displays secret ground truth, so:
 
-  * bound to 127.0.0.1 (default) everything is readable locally, the admin buttons need the token;
-  * bound to any other address (dashboard_host:=0.0.0.0) the data endpoints (/state, /gt.png) need
-    the admin token as well - without it only the empty page and the sponsor logos are served.
+  * practice runs bound to 127.0.0.1 (default): everything is readable locally, the admin buttons need
+    the token;
+  * competition runs (competition:=true), or any other address (dashboard_host:=0.0.0.0): the data
+    endpoints (/state, /gt.png, /cam/*.jpg) need the admin token as well - without it only the empty
+    page and the sponsor logos are served. Team software runs on the same machine, so on loopback
+    alone the ground truth would be one HTTP request away from it.
+
+It also shows the rover's colour and thermal camera (/camera/color/image_raw, /thermal/image_raw),
+the same images the team software receives (parameter dashboard_cameras, default true).
+Open it as http://127.0.0.1:8080/?token=<token> to skip typing the token.
 
 The token is printed in the referee log (parameter dashboard_token, random when not set)."""
 import io
@@ -77,7 +84,17 @@ class Dashboard:
         self.node = node
         self.token = str(node.declare_parameter('dashboard_token', '').value or '') or secrets.token_hex(4)
         host = str(node.declare_parameter('dashboard_host', '127.0.0.1').value or '127.0.0.1')
-        self.open = host in LOOPBACK          # data readable without the token only on loopback
+        # data readable without the token only on loopback, and never in a competition run
+        self.open = host in LOOPBACK and not getattr(node, 'competition', False)
+        self.cams = {}                        # 'rgb' / 'thermal' -> latest sensor_msgs/Image
+        self.jpg = {}                         # name -> (monotonic time, jpeg bytes)
+        self.jpg_lock = threading.Lock()
+        if bool(node.declare_parameter('dashboard_cameras', True).value):
+            from rclpy.qos import qos_profile_sensor_data
+            from sensor_msgs.msg import Image as ImageMsg
+            for name, topic in (('rgb', '/camera/color/image_raw'), ('thermal', '/thermal/image_raw')):
+                node.create_subscription(ImageMsg, topic, lambda m, n=name: self.cams.__setitem__(n, m),
+                                         qos_profile_sensor_data)
         self.png = self._gt_png()
         self.brand = brand_images()
         dash = self
@@ -106,9 +123,12 @@ class Dashboard:
                 if url.path.startswith('/brand/'):
                     img = dash.brand.get(url.path[len('/brand/'):].split('.')[0])
                     return self.send(200, img, 'image/png', 'max-age=3600') if img else self.send(404, '{}')
-                if url.path in ('/state', '/gt.png'):
+                if url.path in ('/state', '/gt.png', '/cam/rgb.jpg', '/cam/thermal.jpg'):
                     if not (dash.open or self.token_ok(url)):
                         return self.send(403, '{"error":"admin token required"}')
+                    if url.path.startswith('/cam/'):
+                        img = dash.camera_jpeg(url.path[5:-4])
+                        return self.send(200, img, 'image/jpeg') if img else self.send(404, '{"error":"no image yet"}')
                     if url.path == '/gt.png':
                         return self.send(200, dash.png, 'image/png')
                     return self.send(200, json.dumps(dash.state()))
@@ -133,7 +153,53 @@ class Dashboard:
         self.httpd = ThreadingHTTPServer((host, port), H)
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
         node.get_logger().info(f'dashboard: http://{host}:{port}  (admin token: {self.token}'
-                               f'{"" if self.open else "; also required to VIEW because the host is not loopback"})')
+                               f'{"" if self.open else "; also required to VIEW (competition run, or the host is not loopback)"})')
+
+    # thermal palette: black -> purple -> red -> orange -> yellow -> white over THERMAL_RANGE_K
+    THERMAL_RANGE_K = (290.0, 330.0)
+    THERMAL_LUT = np.array([[0, 0, 0], [70, 10, 110], [190, 30, 60], [240, 110, 20], [250, 210, 50], [255, 255, 245]], float)
+
+    def camera_jpeg(self, name, max_age=0.25):
+        """Latest image of camera `name` as a small JPEG (re-encoded at most every max_age s), or None."""
+        import time
+        with self.jpg_lock:
+            t, data = self.jpg.get(name, (0.0, None))
+            if data is not None and time.monotonic() - t < max_age:
+                return data
+            m = self.cams.get(name)
+            if m is None or not m.width or not m.height:
+                return None
+            try:
+                data = self._encode(name, m)
+            except Exception as e:  # an unexpected encoding must not break the dashboard
+                self.node.get_logger().warn(f'dashboard camera {name}: {e}', throttle_duration_sec=30.0)
+                return None
+            self.jpg[name] = (time.monotonic(), data)
+            return data
+
+    def _encode(self, name, m):
+        from PIL import Image
+        buf = np.frombuffer(bytes(m.data), np.uint8)
+        if m.encoding in ('rgb8', 'bgr8'):
+            a = buf.reshape(m.height, m.step)[:, :m.width * 3].reshape(m.height, m.width, 3)
+            if m.encoding == 'bgr8':
+                a = a[..., ::-1]
+        elif m.encoding in ('mono16', '16UC1'):
+            v = buf.view('>u2' if m.is_bigendian else '<u2').reshape(m.height, m.step // 2)[:, :m.width]
+            lo, hi = self.THERMAL_RANGE_K
+            x = np.clip((v.astype(np.float32) * 0.01 - lo) / (hi - lo), 0, 1) * (len(self.THERMAL_LUT) - 1)
+            i = np.minimum(x.astype(int), len(self.THERMAL_LUT) - 2)
+            f = (x - i)[..., None]
+            a = (self.THERMAL_LUT[i] * (1 - f) + self.THERMAL_LUT[i + 1] * f).astype(np.uint8)
+        elif m.encoding in ('mono8', '8UC1'):
+            a = buf.reshape(m.height, m.step)[:, :m.width]
+        else:
+            raise ValueError(f'encoding {m.encoding} not supported')
+        im = Image.fromarray(np.ascontiguousarray(a))
+        im.thumbnail((320, 256))
+        b = io.BytesIO()
+        im.save(b, 'JPEG', quality=70)
+        return b.getvalue()
 
     def _gt_png(self):
         from PIL import Image

@@ -1,10 +1,10 @@
 """SparkX scoring rules (public, see docs/RULES.md). All values are points."""
 
-RULES_VERSION = '1.2'       # 1.2: report window at a survivor, idle limit
+RULES_VERSION = '1.3'       # 1.2: report window at a survivor, idle limit; 1.3: clue bonus needs the team's search area
 
 SCORING = dict(
     rescue=100,                 # confirmed rescue
-    rescue_via_hint=50,         # extra: target of a released hint (clue-led rescue)
+    rescue_via_hint=50,         # extra: clue-led rescue (the team's /team/clues area held the person before the rover saw them)
     accuracy_bonus_max=20,      # linear from 20 (0 m error) to 0 (report tolerance)
     return_to_base=100,         # EndMission inside base zone
     return_requires_rescues=1,  # minimum rescues for the return bonus
@@ -31,3 +31,10 @@ REPORT_WINDOW_S = 10.0          # from "within the rescue radius with a clear li
 IDLE_LIMIT_S = 60.0             # longest the rover may go without moving IDLE_MOVE_M
 IDLE_MOVE_M = 0.5
 TIME_WARNINGS_S = (300.0, 120.0, 60.0)
+# Clue-led rescue (rules v1.3). The +50 is paid only when the team's own /team/clues entry for the clue was
+# SEARCHING with a search area that holds the clue's person, published while the rover could not see that
+# person yet. The area that counts is the last one published before the rover first saw the person
+# (clear line of sight within CLUE_SEEN_RANGE_M) after the clue was released.
+CLUE_MAX_SEARCH_RADIUS_M = 15.0  # a larger search_radius_m does not count
+CLUE_AREA_SLACK_M = 1.0          # the person may be this far outside the search circle
+CLUE_SEEN_RANGE_M = 15.0         # "the rover could see the person": clear line of sight within this range

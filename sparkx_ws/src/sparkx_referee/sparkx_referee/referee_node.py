@@ -125,7 +125,7 @@ class RefereeNode(Node):
         self.last_behavior = None
         self.create_subscription(OccupancyGrid, '/map', lambda m: setattr(self, 'last_map', m), latched)
         self.create_subscription(SemanticMap, '/team/semantic_map', lambda m: setattr(self, 'last_sem', m), 10)
-        self.create_subscription(ClueArray, '/team/clues', lambda m: setattr(self, 'last_clues', m), 10)
+        self.create_subscription(ClueArray, '/team/clues', self.on_clues, 10)
         self.create_subscription(BehaviorState, '/team/behavior_state', self.on_behavior, 10)
         self.create_service(GetMissionInfo, '/sparkx/mission/get_info', self.srv_info)
         self.create_service(GetHints, '/sparkx/mission/get_hints', self.srv_hints)
@@ -313,6 +313,14 @@ class RefereeNode(Node):
                 other = b if a.startswith('sparkx_ugv') else a
                 ev += self.ref.on_contact(other)
         self.emit(ev)
+
+    def on_clues(self, msg):
+        self.last_clues = msg
+        try:
+            self.ref.team_clues([(c.hint_id, c.status, float(c.search_center.x), float(c.search_center.y),
+                                  float(c.search_radius_m)) for c in msg.clues], self.team_pose())
+        except Exception as e:  # a malformed message must never stop the referee
+            self.get_logger().warn(f'/team/clues ignored: {e}')
 
     def on_behavior(self, msg):
         self.last_behavior = msg

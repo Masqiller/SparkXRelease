@@ -68,6 +68,8 @@ class Referee:
         self.score_items = []          # (sim_elapsed, points, type, text, ref)
         self.events = []               # dict events for logs / dashboard
         self.released = []             # hint ids
+        self.clue_area = {}            # hint id -> (wx, wy, r): the team's search area while its person was unseen
+        self.clue_seen = set()         # hint ids whose person the rover has seen since the clue was released
         self.rescue_order = []
         self.collisions = 0
         self.false_reports = 0
@@ -177,6 +179,7 @@ class Referee:
                     ev.append(self.add(R.SCORING['fire_damage_per_s'], 'FIRE_DAMAGE',
                                        f'Robot inside fire hazard ({f["id"]}), health {self.health:.0f}%', f['id']))
         ev += self.timing_rules(p)
+        self.clue_sightings(p)
         # flip
         if abs(self.pose['roll']) > R.FLIP_ANGLE_RAD or abs(self.pose['pitch']) > R.FLIP_ANGLE_RAD:
             ev.append(self.add(R.SCORING['flip'], 'ROBOT_FLIPPED', 'Robot rolled over'))
@@ -317,7 +320,7 @@ class Referee:
         acc = R.SCORING['accuracy_bonus_max'] * max(0.0, 1.0 - err_rel / self.rs['report_tolerance_m'])
         pts = R.SCORING['rescue'] + acc
         text = f'{sid} rescued (error {err_rel:.2f} m, map error {err_abs:.2f} m)'
-        if sid in self.hint_targets and any(self.hints[h]['target'] == sid for h in self.released):
+        if self.clue_led(sid):
             pts += R.SCORING['rescue_via_hint']
             text += ' - clue-led rescue'
         ev.append(self.add(pts, 'RESCUE_CONFIRMED', text, sid))
@@ -329,6 +332,53 @@ class Referee:
                 new_hints.append(self.hints[hid])
                 ev.append(self.event('HINT_RELEASED', self.hints[hid]['text'], 0, hid))
         return 'CONFIRMED', text, sid, int(round(pts)), err_abs, new_hints, ev
+
+    # ------------------------------------------------------------------ clue-led rescues (rules v1.3)
+    def clue_sightings(self, p):
+        """Freeze a clue's search area once the rover has seen the clue's person (clear line of sight
+        within CLUE_SEEN_RANGE_M): from then on the team could find the person without the clue."""
+        for hid in self.released:
+            if hid in self.clue_seen:
+                continue
+            s = self.survivors.get(self.hints[hid]['target'])
+            if s is None or s['rescued']:
+                continue
+            if math.hypot(s['x'] - p.x, s['y'] - p.y) <= R.CLUE_SEEN_RANGE_M and \
+                    self.los((p.x, p.y, CAMERA_Z), (s['x'], s['y'], s['z']), s['body']):
+                self.clue_seen.add(hid)
+
+    def team_clues(self, clues, team_pose=None):
+        """clues: [(hint_id, status, cx, cy, radius)] from /team/clues, centre in the team's map frame.
+        team_pose: (mx, my, myaw) team map->base_link now, so SLAM drift is not punished. Silent: no
+        event is raised, so a team cannot probe where a person is by publishing areas."""
+        if self.state != RUNNING or self.pose is None:
+            return
+        p, done = self.pose['p'], set()
+        for hid, status, cx, cy, r in clues:
+            if hid in done:                      # only the first entry per clue counts
+                continue
+            done.add(hid)
+            if hid not in self.released or hid in self.clue_seen or status != 'SEARCHING':
+                continue
+            if not all(map(math.isfinite, (cx, cy, r))) or not 0.0 < r <= R.CLUE_MAX_SEARCH_RADIUS_M:
+                continue
+            if team_pose is not None:
+                wx, wy = p.apply(*Pose2(*team_pose).inverse_apply(cx, cy))
+            else:
+                wx, wy = self.map_to_world(cx, cy)
+            self.clue_area[hid] = (wx, wy, r)
+
+    def clue_led(self, sid):
+        """True when a released clue points at survivor sid and the team's last search area for it,
+        published before the rover saw the person, holds the person."""
+        s = self.survivors[sid]
+        for hid in self.released:
+            if self.hints[hid]['target'] != sid or hid not in self.clue_area:
+                continue
+            wx, wy, r = self.clue_area[hid]
+            if math.hypot(s['x'] - wx, s['y'] - wy) <= r + R.CLUE_AREA_SLACK_M:
+                return True
+        return False
 
     # ------------------------------------------------------------------ aftershocks
     def aftershock_due(self):

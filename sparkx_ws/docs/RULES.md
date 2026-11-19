@@ -1,4 +1,4 @@
-# SparkX Disaster Response Challenge — Rules & Scoring (v1.2)
+# SparkX Disaster Response Challenge — Rules & Scoring (v1.3)
 
 Robotics & AI challenge powered by **Airoot** and **STEMLearn.AI**.
 
@@ -72,6 +72,22 @@ is **confirmed** only if, at that moment, all of these hold:
 A confirmed rescue releases the clue attached to that survivor (if any). A rejected report costs
 points unless the reason was `MISSION_NOT_RUNNING`, `RATE_LIMITED` or `INVALID_REQUEST`.
 
+### Clue-led rescues (v1.3)
+
+The +50 for a clue-led rescue is paid only if your rover really used the clue. The referee reads
+your `/team/clues` and checks, for the clue that names the person you rescued:
+
+1. its entry had `status` `SEARCHING`, with a `search_center` (in your `map` frame) and a
+   `search_radius_m` of at most 15 m;
+2. the person was inside that circle (1 m of slack);
+3. that area was published **before the rover could see the person**, i.e. before it first came
+   within 15 m of them with a clear line of sight after the clue was released. Areas published after
+   that moment are ignored, so the area that counts is the last one you published before it.
+
+Only the first entry per `hint_id` in a message is read. A person you find without your search area
+pointing at them is still a full rescue (+100 and the accuracy bonus), just without the +50. The
+referee never tells you whether an area was right.
+
 ### Timing rules
 
 All times are mission time: simulation seconds while the mission is RUNNING. If the simulator runs
@@ -94,7 +110,7 @@ The limits are also in `GetMissionInfo` (`report_window_s`, `idle_limit_s`, `idl
 |---|---|
 | Confirmed rescue | +100 |
 | Position accuracy bonus | +20 at 0 m error, falling linearly to 0 at 1 m |
-| Clue-led rescue (the survivor was the target of a clue released earlier) | +50 |
+| Clue-led rescue: your rover found the person **through the clue** (section 2) | +50 |
 | `EndMission` called inside the base zone (3 m radius) with ≥ 1 rescue | +100 |
 | All survivors rescued **and** ended in the base zone | +5 per full minute left |
 | Map quality: coverage of reachable space × precision against ground truth | 0 … 100 |

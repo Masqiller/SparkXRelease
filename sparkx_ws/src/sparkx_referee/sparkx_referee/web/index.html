@@ -39,6 +39,9 @@
  #gate{display:none;margin:60px auto;max-width:420px;text-align:center} #gate.on{display:block}
  #note{font-size:12px;color:var(--mute);min-height:16px;margin-top:4px} .legend{font-size:12px;color:var(--mute);padding:8px 4px 2px}
  .legend b{display:inline-block;width:10px;height:10px;border-radius:50%;margin:0 5px 0 12px}
+ .cams{display:grid;grid-template-columns:1fr 1fr;gap:8px} .cams figure{margin:0}
+ .cams img{width:100%;aspect-ratio:5/4;object-fit:contain;background:#111;border-radius:2px;display:block}
+ .cams figcaption{font-size:11px;color:var(--mute);padding-top:4px;text-align:center}
  @media (max-width:900px){main{grid-template-columns:1fr}}
 </style></head><body>
 <header>
@@ -68,6 +71,11 @@
   <div class="legend"><b style="background:#e50227;margin-left:0"></b>survivor waiting<b style="background:#36c275"></b>rescued
    <b style="background:#ff8a1f"></b>fire hazard<b style="background:#f0eff2"></b>robot track<b style="background:#b0763a"></b>aftershock rubble</div></section>
  <div>
+  <section><h2>Rover cameras</h2>
+   <div class="cams">
+    <figure><img id="cam_rgb" alt="Colour camera"><figcaption>Colour</figcaption></figure>
+    <figure><img id="cam_thermal" alt="Thermal camera"><figcaption>Thermal (290&ndash;330 K)</figcaption></figure>
+   </div></section>
   <section><h2>Organizer</h2>
    <label>Admin token <input id="tok" type="password" aria-label="admin token" onchange="setTok(this.value)"></label>
    <button class="go" onclick="adm('start')">Start / Resume</button><button onclick="adm('pause')">Pause</button>
@@ -89,6 +97,7 @@
 const $=id=>document.getElementById(id),c=$('c'),g=c.getContext('2d');
 const esc=s=>String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 let tok='';try{tok=sessionStorage.getItem('sparkx_token')||''}catch(e){}
+{const u=new URLSearchParams(location.search).get('token');if(u){tok=u;try{sessionStorage.setItem('sparkx_token',tok)}catch(e){}}}
 let bg=null,bgTok=null;
 function setTok(v){tok=v.trim();try{sessionStorage.setItem('sparkx_token',tok)}catch(e){}$('tok').value=tok;tick()}
 function q(){return tok?('?token='+encodeURIComponent(tok)):''}
@@ -134,5 +143,8 @@ async function tick(){
  $('hints').innerHTML=s.hints.map(h=>`<li><b>${esc(h.id)}</b> <span class="t">${esc(h.source)} &rarr; ${esc(h.target)}</span><br>${esc(h.text)}</li>`).join('')||'<li class="t">none yet</li>';
  $('events').innerHTML=s.events.map(e=>`<li class="${e.score_delta<0||e.type==='RULE_VIOLATION'?'neg':(e.score_delta>0?'pos':'')}"><span class="t">${e.t.toFixed(0)}s</span><b>${esc(e.type)}</b> ${esc(e.description)} ${e.score_delta?'('+(e.score_delta>0?'+':'')+e.score_delta+')':''}</li>`).join('');
 }
-$('tok').value=tok;setInterval(tick,1000);tick();
+function cam(name){const el=$('cam_'+name);
+ const next=d=>setTimeout(()=>{el.src='/cam/'+name+'.jpg'+(q()||'?')+(q()?'&':'')+'t='+Date.now()},d);
+ el.onload=()=>next(300);el.onerror=()=>next(1500);next(0)}
+$('tok').value=tok;setInterval(tick,1000);tick();cam('rgb');cam('thermal');
 </script></body></html>
