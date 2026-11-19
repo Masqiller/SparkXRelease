@@ -179,7 +179,10 @@ class Mission(Node):
         self.get_logger().info(f'referee answered: {future.result().message}')
 
     def clue_statuses(self):
-        """One ClueStatus per clue received. TODO: fill in what you did with each clue."""
+        """One ClueStatus per clue received. TODO: fill in what you did with each clue.
+        The +50 of a clue-led rescue is paid only if, before the rover could see the person, this
+        clue was SEARCHING with search_center (map frame) and search_radius_m (<= 15 m) around them
+        (docs/RULES.md, section 2)."""
         return [ClueStatus(hint_id=h, status=ClueStatus.PENDING) for h in self.hints]
 
     # ------------------------------------------------------------------ moving

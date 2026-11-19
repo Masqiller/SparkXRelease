@@ -1,4 +1,4 @@
-# SparkX Competition Interfaces (rules v1.2)
+# SparkX Competition Interfaces (rules v1.3)
 
 Team software may use only what is listed here. Anything under `/sparkx/referee_private/`, and
 Gazebo transport itself, is off limits: the referee watches the ROS graph and a run that touches
@@ -33,7 +33,7 @@ section 1): warm and of the right size is not yet a survivor.
 | TF `map → odom → base_link` | tf2 | used for the drift-free rescue check and the localisation score |
 | `/map` | `nav_msgs/OccupancyGrid` | frame `map`, transient-local; **the `map` origin must be the start pose** (x forward at start) |
 | `/team/semantic_map` | `sparkx_interfaces/SemanticMap` | ≥ 0.5 Hz, frame `map` |
-| `/team/clues` | `sparkx_interfaces/ClueArray` | status of every received clue |
+| `/team/clues` | `sparkx_interfaces/ClueArray` | status of every received clue; a `SEARCHING` entry's `search_center` + `search_radius_m` (≤ 15 m) decide the clue-led bonus (`RULES.md` §2) |
 | `/team/behavior_state` | `sparkx_interfaces/BehaviorState` | ≥ 1 Hz |
 
 In the supplied stack the locked launch file starts EKF, SLAM Toolbox and Nav2 (tuned through

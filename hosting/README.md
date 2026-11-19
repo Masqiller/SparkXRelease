@@ -59,7 +59,7 @@ its output must be:
 
 ```
 Summary: 8 packages finished [15.1s]
-stack integrity: OK  (741 locked files, fingerprint ea4c2e955e1c25ca)
+stack integrity: OK  (741 locked files, fingerprint 7be8cd944cd41441)
 sandbox for team software: available (bubblewrap)
 ```
 
@@ -77,7 +77,7 @@ Never evaluate on a stack that does not verify.
 Check the referee's timing rules once (no simulator needed):
 
 ```bash
-python3 hosting/test_timing_rules.py       # last line: ALL PASSED
+python3 hosting/test_timing_rules.py       # report window, idle limit, clue rule; last line: ALL PASSED
 ```
 
 `hosting/host_config.json` holds the settings of your machine. It is never committed. Delete it to
@@ -172,7 +172,9 @@ Options:
 
 While a run is on:
 
-- the referee's dashboard is at `http://127.0.0.1:8080` (the panel in section 6 shows the link with its token);
+- the referee's dashboard is at `http://127.0.0.1:8080/?token=<token>`. The panel in section 6 shows this link.
+  - In a competition run the dashboard shows nothing without its token, because team software runs on the same machine.
+  - It shows the live score, the arena map with the rover and every survivor, the clues released, every scored event, and the rover's **colour and thermal camera** (the "Rover cameras" box, about 3 pictures a second);
 - `python3 hosting/sparkx_host.py stop` stops it.
 
 Where the results are:

@@ -47,11 +47,15 @@ tuned to the practice worlds will not do well. Build something that works on any
 
 ## 2. The rules in one minute
 
-Full rules: [`sparkx_ws/docs/RULES.md`](sparkx_ws/docs/RULES.md) (v1.2). The ones that matter most:
+Full rules: [`sparkx_ws/docs/RULES.md`](sparkx_ws/docs/RULES.md) (v1.3). The ones that matter most:
+
+> **New in v1.3:** the +50 for a clue-led rescue is paid only if your rover really used the clue:
+> before it could see the person, your `/team/clues` entry for that clue was `SEARCHING` with a
+> `search_center` and a `search_radius_m` (at most 15 m) around them. See RULES §2, "Clue-led rescues".
 
 | | |
 |---|---|
-| **Confirmed rescue** | +100 (+ up to 20 for position accuracy, + 50 if a clue led you there) |
+| **Confirmed rescue** | +100 (+ up to 20 for position accuracy, + 50 if your published clue search area led you there) |
 | **To be confirmed** | rover within **2 m** of the person, clear line of sight, **stopped for 2 s**, reported position within **1 m** |
 | **Report window** | once you are within 2 m with a clear view, the rescue must be confirmed within **10 s**, or −20 |
 | **Return** | `EndMission` inside the 3 m base zone: +100. All rescued *and* home: +5 per full minute left |
@@ -205,7 +209,7 @@ Only the organisers' run of your zip counts. You are **disqualified on that worl
 | Document | Read it for |
 |---|---|
 | [`docs/TEAM_GUIDE.md`](sparkx_ws/docs/TEAM_GUIDE.md) | what each of your files must do, training a model, practising, handing in |
-| [`docs/RULES.md`](sparkx_ws/docs/RULES.md) | the complete rules and scoring (v1.2) |
+| [`docs/RULES.md`](sparkx_ws/docs/RULES.md) | the complete rules and scoring (v1.3) |
 | [`docs/INTERFACES.md`](sparkx_ws/docs/INTERFACES.md) | every topic, service and message you can use |
 | [`sparkx_ws/README.md`](sparkx_ws/README.md) | the stack: packages, robot and sensors, worlds |
 | [`docs/HOSTING.md`](sparkx_ws/docs/HOSTING.md) | how the organisers run your submission |
