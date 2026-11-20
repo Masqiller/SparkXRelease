@@ -420,7 +420,7 @@ def run(zip_path, world, c, job=None, gui=False, time_limit=0.0):
         unit_start(ORG_UNIT, ['bash', '-c', f'{ros_env(c)}; exec ros2 launch sparkx_bringup practice.launch.py ' +
                               ' '.join(shlex.quote(a) for a in args)], os.path.join(logs, 'organiser.log'),
                    mem=c['org_memory'], env=org_env)
-        state_url = f'http://127.0.0.1:{port}/state'
+        state_url = f'http://127.0.0.1:{port}/state?token={token}'
         t0 = time.time()
         while True:
             time.sleep(2)
