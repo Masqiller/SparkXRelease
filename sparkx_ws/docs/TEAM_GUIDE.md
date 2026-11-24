@@ -96,9 +96,72 @@ ros2 run sparkx_bringup dataset_capture --ros-args -p out_dir:=~/sparkx_dataset 
 
 Train on your own machine, put the weights in `src/sparkx_team/models/` and load them in
 `perception.py`. Only data files may live in `models/` (no `.py`, `.so`, `.sh` …), the folder is
-flat (no sub-folders), a single file may be up to 500 MB and the folder up to 1.5 GB. You may
-import the Python libraries installed on the organisers' machine; ask for the list before you
-depend on anything unusual.
+flat (no sub-folders), a single file may be up to 500 MB and the folder up to 1.5 GB.
+
+**Your model must run with the official ML kit** (RULES §6): numpy 1.26.4, OpenCV 4.6 (with `cv2.ml`)
+and `onnxruntime` 1.32.0 on the CPU. Nothing else is installed: no PyTorch, no Ultralytics, no TensorFlow,
+no scikit-learn. Train with whatever you like on your own machine, then hand in the model in one of three
+levels:
+
+| Level | File in `models/` | Your code loads it with | Good for |
+|---|---|---|---|
+| **1. Plain numbers** | `.json` `.csv` `.npy` `.npz` | `json.load`, `numpy.load(path, allow_pickle=False)` | logistic regression, small neural network, decision tree |
+| **2. OpenCV model** | `.xml` / `.yml` saved by `cv2.ml` | `cv2.ml.RTrees_load(path)` (or `SVM_load`, `ANN_MLP_load`, ...) | random forest, SVM, boosting, k-nearest |
+| **3. ONNX** | `.onnx` (opset 12 to 21, fixed input size) | `onnxruntime.InferenceSession(path)` | detectors that work on whole images |
+
+**Start with a small classifier (level 1 or 2).** Let your code find candidates with the sensors (a warm
+spot in the thermal image, a coloured blob, a LiDAR cluster), measure a handful of numbers about each one
+(size in metres, shape, temperature, colour, ...), and let a trained classifier decide "person or not",
+"landmark or not". It trains in seconds on a few hundred examples you record yourself, runs in
+microseconds on the CPU, cannot fail to load, and counts fully as your trained model: the organisers'
+own reference run uses exactly that kind of model. Move to level 3 only if you need a detector on whole
+images, and budget the extra work: you write the resizing and the box filtering yourself, and a big
+network slows your whole stack down.
+
+A level-1 example: train a logistic regression anywhere, save its numbers, use them with numpy.
+
+```python
+# on your own machine (any library), after training:
+json.dump({'mean': mean.tolist(), 'std': std.tolist(), 'w': w.tolist(), 'b': float(b)}, open('person.json', 'w'))
+
+# in perception.py
+m = json.load(open(os.path.join(self.model_dir, 'person.json')))
+z = (np.asarray(features) - m['mean']) / m['std']
+p_person = 1.0 / (1.0 + np.exp(-(z @ np.asarray(m['w']) + m['b'])))
+```
+
+A level-2 example, with OpenCV only:
+
+```python
+rf = cv2.ml.RTrees_create(); rf.train(X.astype(np.float32), cv2.ml.ROW_SAMPLE, y.astype(np.int32)); rf.save('person.yml')
+# in perception.py
+rf = cv2.ml.RTrees_load(os.path.join(self.model_dir, 'person.yml'))
+_, label = rf.predict(np.float32([features]))
+```
+
+**Not allowed in `models/`:** pickles (`.pkl`, `.joblib`, `.pt`, `.pth`, `.ckpt`) and formats the kit
+cannot read (`.h5`, `.tflite`, `.pb`, `.safetensors`, `.bin`, ...). Save numbers, not Python objects.
+
+Install the kit once on your own machine, exactly as the evaluators do (numpy and OpenCV come with the
+`apt` line in `README.md`; `onnxruntime` is needed only for level 3, but install it anyway):
+
+```bash
+sudo python3 -m pip install --break-system-packages --no-deps onnxruntime==1.32.0
+python3 -c "import numpy, cv2; print(numpy.__version__, cv2.__version__)"     # must print 1.26.4 4.6.0
+```
+
+Then test every file in `models/` the way the evaluator will (it runs this same file before your run):
+
+```bash
+python3 sparkx_ws/tools/model_selftest.py      # one line per file: OK with its level, or why it will not load
+```
+
+A model that does not load in the evaluation is **your** problem: the run is scored without it. The same
+applies to a model that needs more than your memory limit to open, or more than 180 s; `.npz` arrays that
+unpack to more than 1 GB in total fail the check. The
+check only proves that the file opens: test your whole stack in a practice world too. Give your code a
+fallback (for example a plain temperature-and-size rule) and log loudly when the model is missing, so
+that you see it in `team.log`.
 
 ## 4. Practise
 

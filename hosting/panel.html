@@ -11,6 +11,8 @@
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 header{background:var(--navy);color:#fff;padding:14px 20px;display:flex;gap:16px;align-items:baseline;flex-wrap:wrap}
 @media (prefers-color-scheme: dark){header{background:#1d1f2a;border-bottom:1px solid var(--line)}}
+.partners{background:#1d1d1f;padding:6px 12px;text-align:center;color:#f0eff2;font-size:13px}
+.partners img{height:52px;max-width:100%;object-fit:contain;display:inline-block;vertical-align:middle}
 header h1{font-size:18px;margin:0;letter-spacing:.02em}
 header span{opacity:.8;font-size:13px}
 main{max-width:1180px;margin:0 auto;padding:16px;display:grid;gap:16px}
@@ -39,6 +41,8 @@ a{color:inherit}
 </style>
 </head>
 <body>
+<div class="partners"><img src="/brand/header.png" alt="IIIT Allahabad | STEMLearn.AI | Airoot | Presented at IIT Bombay Techfest"
+ onerror="this.replaceWith(document.createTextNode('IIIT Allahabad · STEMLearn.AI · Airoot · Presented at IIT Bombay Techfest'))"></div>
 <header><h1>SparkX Host</h1><span>submissions &rarr; clean build &rarr; scored run</span></header>
 <main>
  <section>
@@ -65,16 +69,20 @@ a{color:inherit}
 </main>
 <script>
 const $=id=>document.getElementById(id);
-const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc=s=>String(s).replace(/[&<>"'`]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'}[c]));
+// the panel key: printed by "sparkx_host.py ui" as part of the address (?key=...); every API call carries it
+let KEY='';try{KEY=new URLSearchParams(location.search).get('key')||sessionStorage.getItem('sparkx_panel_key')||'';sessionStorage.setItem('sparkx_panel_key',KEY)}catch(e){}
+const H={'X-Panel-Key':KEY};
 const fmt=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
 let worldsKey='';
-async function post(u,b){const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+async function post(u,b){const r=await fetch(u,{method:'POST',headers:{...H,'Content-Type':'application/json'},body:JSON.stringify(b)});
  const j=await r.json();if(j.error)alert(j.error);tick()}
 function runOne(z){const w=$('world').value;if(!w){alert('No world available.');return}
  if(z==='*'&&!confirm('Run every accepted submission on '+w+', one after another?'))return;
  post('/api/run',{zip:z,world:w,gui:$('gui').checked})}
 async function tick(){
- let s;try{s=await(await fetch('/api/state')).json()}catch(e){$('stage').textContent='control panel is not answering';return}
+ let s,r;try{r=await fetch('/api/state',{headers:H});s=await r.json()}catch(e){$('stage').textContent='control panel is not answering';return}
+ if(r.status===403){$('stage').textContent='Open the address that "sparkx_host.py ui" printed (it ends with ?key=...).';return}
  const j=s.job,busy=!['idle','finished','failed'].includes(j.stage);
  $('warn').innerHTML=(s.stack?'':'<div class="warn">The organiser stack is not built yet. Run <b>python3 hosting/sparkx_host.py setup</b> once.</div>')+
   (s.sandbox?'':'<div class="warn">No sandbox on this machine (bubblewrap missing or switched off): team software could read the answer files.</div>');
@@ -95,7 +103,7 @@ async function tick(){
  $('subs').innerHTML=s.submissions.map(x=>`<tr><td><b>${esc(x.team)}</b></td><td>${esc(x.zip)}</td><td>${esc(x.received)}</td>
   <td>${x.problems.length?'<span class="bad">rejected</span><br><small>'+x.problems.map(esc).join('<br>')+'</small>':'<span class="ok">accepted</span>'}</td>
   <td>${x.runs.map(r=>esc(r.world)+': <b>'+r.score+'</b> ('+r.rescued+'/'+r.total+')').join('<br>')||'<span class="mute">none</span>'}</td>
-  <td><button class="go" ${x.problems.length?'disabled':''} onclick="runOne('${esc(x.zip)}')">Build &amp; run</button></td></tr>`).join('')||
+  <td><button class="go" ${x.problems.length?'disabled':''} data-zip="${esc(x.zip)}" onclick="runOne(this.dataset.zip)">Build &amp; run</button></td></tr>`).join('')||
   '<tr><td colspan="6" class="mute">No zip files yet. Copy the teams\' zips into hosting/submissions.</td></tr>';
  $('all').disabled=!s.submissions.some(x=>!x.problems.length);
  const names=[...new Set(s.board.flatMap(t=>Object.keys(t.worlds)))].sort();

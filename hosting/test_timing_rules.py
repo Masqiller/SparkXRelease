@@ -65,11 +65,15 @@ def main():
     far = (s['x'] + (near[0] - s['x']) * 3.0, s['y'] + (near[1] - s['y']) * 3.0)      # 4.5 m away, same direction
 
     ref = fresh()
-    expect('9 s at a survivor, then leave: no penalty', hold(ref, *near, 9.0) + hold(ref, *far, 5.0), [])
+    expect('9 s at a survivor, then leave for 6 s: no penalty', hold(ref, *near, 9.0) + hold(ref, *far, 6.0), [])
     expect('back for another 9 s (clock was reset): no penalty', hold(ref, *near, 9.0), [])
     expect('stay to 11 s: one LATE_REPORT', hold(ref, *near, 2.0), ['LATE_REPORT'])
     expect('stay 30 s more: not charged twice for the same survivor', hold(ref, *near, 30.0, wiggle=0.6), [])
     expect('score after one late report', ref.score, R.SCORING['late_report'])
+
+    ref = fresh()
+    expect('hop out for 0.5 s every 9 s: the clock keeps running (v1.4)',
+           hold(ref, *near, 9.0) + hold(ref, *far, 0.5) + hold(ref, *near, 3.0), ['LATE_REPORT'])
 
     ref = fresh()
     hold(ref, *near, 4.0)

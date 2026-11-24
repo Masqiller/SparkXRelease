@@ -67,6 +67,8 @@ the Blender scripts in `sparkx_ws/tools/blender/` and belong to the SparkX organ
 
 ## Brand artwork
 
-`sparkx_media/brand/` holds the Airoot mark (rasterized from the Airoot TurtleBot S1 R13 CAD) and the
-STEMLearn.AI logo (from https://stemlearn.ai). Both are trademarks of their owners and are used here
-by the event organisers; they are not covered by the licences above.
+`sparkx_media/brand/` holds the official SparkX partner header (IIIT Allahabad, STEMLearn.AI, Airoot,
+IIT Bombay Techfest; supplied by the organisers) and the logos cut from it, the Airoot mark used on the
+rover (rasterized from the Airoot TurtleBot S1 R13 CAD) and the STEMLearn.AI logo (from
+https://stemlearn.ai). All are trademarks of their owners and are used here by the event organisers;
+they are not covered by the licences above.

@@ -1,4 +1,4 @@
-# SparkX Competition Interfaces (rules v1.3)
+# SparkX Competition Interfaces (rules v1.4)
 
 Team software may use only what is listed here. Anything under `/sparkx/referee_private/`, and
 Gazebo transport itself, is off limits: the referee watches the ROS graph and a run that touches
@@ -33,7 +33,7 @@ section 1): warm and of the right size is not yet a survivor.
 | TF `map → odom → base_link` | tf2 | used for the drift-free rescue check and the localisation score |
 | `/map` | `nav_msgs/OccupancyGrid` | frame `map`, transient-local; **the `map` origin must be the start pose** (x forward at start) |
 | `/team/semantic_map` | `sparkx_interfaces/SemanticMap` | ≥ 0.5 Hz, frame `map` |
-| `/team/clues` | `sparkx_interfaces/ClueArray` | status of every received clue; a `SEARCHING` entry's `search_center` + `search_radius_m` (≤ 15 m) decide the clue-led bonus (`RULES.md` §2) |
+| `/team/clues` | `sparkx_interfaces/ClueArray` | status of every received clue; a `SEARCHING` entry's `search_center` + `search_radius_m` (≤ 8 m, centre jumps ≤ 3) decide the clue-led bonus (`RULES.md` §2) |
 | `/team/behavior_state` | `sparkx_interfaces/BehaviorState` | ≥ 1 Hz |
 
 In the supplied stack the locked launch file starts EKF, SLAM Toolbox and Nav2 (tuned through
@@ -47,10 +47,10 @@ nodes provide the rest. See `docs/TEAM_GUIDE.md`.
 | `/sparkx/mission/status` | `MissionStatus`, 2 Hz | state WAITING / RUNNING / PAUSED / FINISHED, time, score, health, counters (collisions, rejected and late reports, idle penalties), `finish_reason` |
 | `/sparkx/mission/events` | `MissionEvent` | rescues, penalties (`RESCUE_REJECTED`, `LATE_REPORT`, `IDLE`, `COLLISION` …), `AFTERSHOCK`, `TIME_WARNING` (300, 120, 60 s left), `RULE_VIOLATION`, `STACK_INTEGRITY` … |
 | `/sparkx/mission/hints` | `Hint`, transient-local | clues, published when released |
-| `/sparkx/mission/get_info` | `GetMissionInfo` | limits (rescue radius, dwell, report window, idle limit, time limit) and the published vocabulary |
+| `/sparkx/mission/get_info` | `GetMissionInfo` | limits (rescue radius, dwell, report window, idle limit, time limit) and the published vocabulary. Ask once at the start: it never changes. In an evaluation `world_name` (here and in `MissionStatus`) is `competition`, not the world's real name |
 | `/sparkx/mission/get_hints` | `GetHints` | every clue released so far |
 | `/sparkx/mission/report_survivor` | `ReportSurvivor` | rescue confirmation; conditions in `docs/RULES.md` section 2 and in the `.srv` file |
-| `/sparkx/mission/submit_record` | `SubmitMissionRecord` | final map + semantic memory + clue log; the last submission counts. If never called, the last `/map` and `/team/semantic_map` are used |
+| `/sparkx/mission/submit_record` | `SubmitMissionRecord` | final map + semantic memory + clue log; the last submission counts. Submit **before** `EndMission` and before the time limit: once the mission is over the record is frozen and later submissions are refused. At most one submission per second. If never called, the last `/map` and `/team/semantic_map` received before the finish are used |
 | `/sparkx/mission/end` | `EndMission` | declares completion; return bonus only inside the base zone |
 
 `finish_reason` is one of `END_MISSION:<reason> (in base | outside base)`, `TIME_LIMIT`,

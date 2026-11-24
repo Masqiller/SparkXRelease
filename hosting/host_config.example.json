@@ -3,7 +3,8 @@
  "team_cpus": 8,
  "org_memory": "",
  "textures": "full",
- "sandbox": "auto",
+ "sandbox": "on",
+ "team_user": "",
  "min_free_mb": 0,
  "extra_setup": [],
  "team_visible_paths": []

@@ -50,15 +50,11 @@ def font(size, bold=True):
 
 
 def brand_strip():
-    """Airoot x STEMLearn.AI logos for the footer (from the worlds package's brand folder)."""
+    """The partner header for the footer (IIIT Allahabad | STEMLearn.AI | Airoot | Presented at IIT Bombay
+    Techfest, left to right), from the worlds package's brand folder."""
     try:
         from sparkx_worlds import branding
-        a = branding.airoot(34)
-        s = branding.stemlearn(24, on_dark=True)
-        im = PI.new('RGBA', (a.width + s.width + 40, 40), (0, 0, 0, 0))
-        im.alpha_composite(a, (0, 3))
-        im.alpha_composite(s, (a.width + 40, 8))
-        return im
+        return branding.header_strip(380, 34)          # fits beside the title line under the chase view
     except Exception:
         return None
 

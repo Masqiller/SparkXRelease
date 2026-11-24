@@ -1,6 +1,6 @@
 # Hosting Guide (organisers)
 
-SparkX Disaster Response Challenge — powered by Airoot and STEMLearn.AI.
+SparkX Disaster Response Challenge — IIIT Allahabad · STEMLearn.AI · Airoot · presented at IIT Bombay Techfest.
 
 > **Running the event from the release folder?** Use `hosting/sparkx_host.py` (next to this
 > workspace; described in the release folder's `README.md`). It does sections 1 and 3 below with
@@ -34,9 +34,12 @@ The lock-down has three layers. Only the first one is real security; say so to t
 ## 2. Prepare secret worlds
 
 ```bash
-ros2 run sparkx_worlds generate_world --name final_A --seed <secret> --size large --difficulty hard \
-    --lighting smoky --out /secure/worlds
+ros2 run sparkx_worlds generate_world --name final_A --seed "$(python3 -c 'import secrets; print(secrets.randbits(63))')" \
+    --salt-file ~/.sparkx_organiser/world_salt --size large --difficulty hard --lighting smoky --out /secure/worlds
 ```
+
+Use a random 63-bit seed and a private salt file (at least 16 random bytes, kept outside the stack). Without the salt,
+a world is only as private as its seed. The evaluator tool's `new-world` does both for you.
 
 Check `/secure/worlds/final_A/private/preview.png` (survivors, clue chains, fires, aftershock
 slots). `private/` holds the answers: it stays on the organiser machine and is never mounted into
@@ -186,7 +189,7 @@ the number of disqualified runs per team.
 
 | File | Purpose |
 |---|---|
-| `docker/Dockerfile` | organiser image: simulator, referee, the locked stack. `--build-arg REQUIRE_PRISTINE=true` fails the build unless the stack verifies; `--build-arg WITH_ML=true` adds the published ML libraries (ultralytics, onnxruntime, scikit-learn) |
+| `docker/Dockerfile` | organiser image: simulator, referee, the locked stack. `--build-arg REQUIRE_PRISTINE=true` fails the build unless the stack verifies; it always contains the official ML kit (numpy 1.26.4, OpenCV 4.6, onnxruntime 1.32.0; RULES §6) and checks those versions |
 | `docker/Dockerfile.team` | organiser image + one validated submission, rebuilt `sparkx_team`, unprivileged user, starts only the autonomy stack |
 | `docker/run_team.sh` | builds the team image from a submission zip and runs it with CPU / RAM / PID limits |
 

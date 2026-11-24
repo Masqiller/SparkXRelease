@@ -42,12 +42,13 @@ from sparkx_worlds import vocab
 from . import evaluation as EV
 from . import integrity
 from . import rules as R
-from .core import CODES, FINISHED, RUNNING, Referee
+from .core import CODES, FINISHED, PAUSED, RUNNING, Referee
 
 
 PRIVATE_PREFIX = '/sparkx/referee_private/'
 BRIDGE_NODE = 'sparkx_referee_bridge'
 # the only endpoints that may exist on the private topics: (node, action, topic suffix)
+REFEREE_PUBLIC_TOPICS = ('/sparkx/mission/status', '/sparkx/mission/events', '/sparkx/mission/hints')
 PRIVATE_ENDPOINTS = {
     ('sparkx_referee', 'publishes', 'cmd_vel'), ('sparkx_referee', 'subscribes', 'gt_odom'),
     ('sparkx_referee', 'subscribes', 'bumper'), (BRIDGE_NODE, 'publishes', 'gt_odom'),
@@ -59,9 +60,30 @@ def yaw_q(q):
     return math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
 
 
+def map_problem(g):
+    """Why an OccupancyGrid cannot be scored, or '' when it can (None = no map, also fine)."""
+    if g is None or not g.info.width:
+        return ''
+    i = g.info
+    if not i.height:
+        return f'map has width {i.width} but height 0'
+    if i.width * i.height > 16_000_000:      # 200 m x 200 m at 0.05 m; honest maps are far smaller
+        return f'map too large ({i.width} x {i.height} cells, at most 16 million)'
+    if len(g.data) != i.width * i.height:
+        return f'map data has {len(g.data)} cells, width x height is {i.width * i.height}'
+    if not (0.01 <= i.resolution <= 1.0):
+        return f'map resolution {i.resolution} m is outside 0.01 ... 1.0'
+    o, q = i.origin.position, i.origin.orientation
+    if not all(math.isfinite(v) for v in (o.x, o.y, q.x, q.y, q.z, q.w)):
+        return 'map origin is not a finite number'
+    return ''
+
+
 class RefereeNode(Node):
     def __init__(self):
-        super().__init__('sparkx_referee')
+        # no parameter services: other programs on this machine (team software included) must not read
+        # the dashboard token or the world folder, nor change any setting while the referee runs
+        super().__init__('sparkx_referee', start_parameter_services=False)
         p = self.declare_parameter
         world_dir = p('world_dir', '').value
         if not world_dir:
@@ -91,6 +113,9 @@ class RefereeNode(Node):
         self.violations = []
         self.disqualified = False
         self._suspects = {}
+        self._info_cache, self._info_sec, self._info_n, self.api_calls = None, -1, 0, {}
+        self._spoof_seen, self.topic_review, self._last_submit = {}, [], -1e9   # other publishers on the referee's public topics
+        self.graph_review = []         # nameless private-topic endpoints, for the evaluator to look at
         self.start_block = ''
         if self.require_integrity and self.integrity['status'] != 'ok':
             self.start_block = f'stack integrity is {self.integrity["status"].upper()}: {self.integrity["note"]}'
@@ -103,6 +128,9 @@ class RefereeNode(Node):
             self.ref.time_limit = tl
             self.get_logger().warn(f'time limit overridden: {tl:.0f} s (the world file says {self.ref.sc["time_limit_s"]:.0f} s)')
         self.gz_world = self.ref.sc['world']
+        # a world name tells a team which world it is in. In competition the
+        # team-facing name is neutral; the real one stays in summary.json and on the token-protected dashboard.
+        self.public_world = 'competition' if self.competition else self.gz_world
         stamp = time.strftime('%Y%m%d_%H%M%S')
         self.log_dir = os.path.join(log_root, f'{stamp}_{self.team}_{self.gz_world}')
         os.makedirs(os.path.join(self.log_dir, 'evidence'), exist_ok=True)
@@ -123,8 +151,9 @@ class RefereeNode(Node):
         self.last_sem = None
         self.last_clues = None
         self.last_behavior = None
-        self.create_subscription(OccupancyGrid, '/map', lambda m: setattr(self, 'last_map', m), latched)
-        self.create_subscription(SemanticMap, '/team/semantic_map', lambda m: setattr(self, 'last_sem', m), 10)
+        # frozen at the finish: no mapping after time is up (the topic side of the frozen record)
+        self.create_subscription(OccupancyGrid, '/map', lambda m: self._live('last_map', m), latched)
+        self.create_subscription(SemanticMap, '/team/semantic_map', lambda m: self._live('last_sem', m), 10)
         self.create_subscription(ClueArray, '/team/clues', self.on_clues, 10)
         self.create_subscription(BehaviorState, '/team/behavior_state', self.on_behavior, 10)
         self.create_service(GetMissionInfo, '/sparkx/mission/get_info', self.srv_info)
@@ -152,18 +181,20 @@ class RefereeNode(Node):
         self.create_timer(0.5, self.publish_status)
         self.create_timer(1.0, self.sample_localization)
         # wall-clock timer: the tripwire must keep running while the simulation is paused or slow
-        self.create_timer(float(p('graph_check_period_s', 1.0).value), self.check_graph,
+        self.create_timer(float(p('graph_check_period_s', 0.25).value), self.check_graph,
                           clock=Clock(clock_type=ClockType.STEADY_TIME))
         # wall-clock watchdog: every other timer here runs on simulation time, so if /clock never
         # arrives (bridge not connected, simulator not running) the referee would wait in silence
         self._clock_seen = False
         self._clock_warned = 0
         self.create_timer(5.0, self.check_clock, clock=Clock(clock_type=ClockType.STEADY_TIME))
+        self.create_timer(1.0, self.check_sim_advancing, clock=Clock(clock_type=ClockType.STEADY_TIME))
         self.dashboard = None
         if self.dashboard_port > 0:
             from .dashboard import Dashboard
             self.dashboard = Dashboard(self, self.dashboard_port)
-        self.get_logger().info(f'SparkX referee ready: world={self.gz_world} team={self.team} logs={self.log_dir}')
+        self.get_logger().info(f'SparkX referee ready: world={self.public_world} team={self.team}'
+                               + ('' if self.competition else f' logs={self.log_dir}'))
         self.report_integrity()
         self.get_logger().info(f'lock-down: competition={self.competition} require_integrity={self.require_integrity} '
                                f'violation_policy={self.violation_policy} ros_admin_services={ros_admin}')
@@ -198,8 +229,14 @@ class RefereeNode(Node):
             self.ref.events.append(e)
         return e
 
+    def _live(self, attr, msg):
+        if self.ref.state != FINISHED and not self.finalized:
+            setattr(self, attr, msg)
+
     def request_start(self):
         """Start / resume, unless the lock-down forbids running this stack."""
+        if self.ref.pose is None:     # no odometry yet: reports and EndMission would fail on a missing pose
+            return [self.note('START_REFUSED', 'start refused - no odometry from the simulator yet')]
         if self.start_block:
             return [self.note('STACK_INTEGRITY', f'start refused - {self.start_block}')]
         return self.ref.start_mission()
@@ -229,9 +266,31 @@ class RefereeNode(Node):
                         bad.append((full, action, topic))
         return bad
 
+    def public_spoofers(self):
+        """[(node, topic)] of publishers on the referee's own public topics (status, events, hints) that are not the
+        referee. Teams may read these topics, never publish on them: fake messages could fool a judge or
+        a video. Recorded for review, not a disqualification (the rules do not say so)."""
+        out = []
+        for topic in REFEREE_PUBLIC_TOPICS:
+            for i in self.get_publishers_info_by_topic(topic):
+                if i.node_name != self.get_name() and not self.is_trusted(i.node_name):
+                    out.append(((i.node_namespace.rstrip('/') + '/' + i.node_name), topic))
+        return out
+
     def check_graph(self):
         if self.ref.state == FINISHED:
             return
+        try:
+            for k in self.public_spoofers():
+                if self.ref.state != RUNNING:
+                    continue           # counted from the start, so one that began before the start is still caught
+                n = self._spoof_seen[k] = self._spoof_seen.get(k, 0) + 1
+                # a nameless endpoint must persist (8 checks, ~2 s): during discovery our own node can look nameless
+                if n == (8 if '_NODE_NAME_UNKNOWN' in k[0] else 1):
+                    self.get_logger().warn(f'publisher on a referee topic: {k[0]} -> {k[1]}')
+                    self.topic_review.append(dict(t=round(self.ref.elapsed, 1), node=k[0], topic=k[1]))
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().debug(f'spoof check failed: {e}')
         try:
             now = set(self.private_endpoints())
         except Exception as e:  # graph queries can fail while nodes come and go
@@ -239,10 +298,23 @@ class RefereeNode(Node):
             return
         ev = []
         with self.lock:
-            # an endpoint must be seen on two consecutive checks (discovery can report half-known nodes)
-            self._suspects = {k: self._suspects.get(k, 0) + 1 for k in now}
-            for (node, action, topic), n in sorted(self._suspects.items()):
-                if n != 2:
+            # Sightings are counted over the whole run, not in a row, so an endpoint that appears for less
+            # than one check and comes back later is still seen. A named, unexpected node is a violation at
+            # once. A nameless one can be a half-known organiser node during discovery: it is only recorded
+            # for the evaluator to review (summary.json "graph_review"), never an automatic disqualification.
+            for k in now:
+                self._suspects[k] = self._suspects.get(k, 0) + 1
+                if self._suspects[k] == 1:
+                    self.get_logger().warn(f'private-topic endpoint seen: {k[0]} {k[1]} {k[2]}')
+                    # before the start the organiser's bridge shows up half-discovered (seen in a live run)
+                    if '_NODE_NAME_UNKNOWN' in k[0] and self.ref.state == RUNNING:
+                        self.graph_review.append(dict(t=round(self.ref.elapsed, 1), node=k[0], action=k[1], topic=k[2]))
+            organiser = {n for n, _, _ in PRIVATE_ENDPOINTS}
+            for (node, action, topic) in sorted(now):
+                # a second endpoint under an organiser's own name can be a discovery transient: it needs a
+                # second sighting; any other named node is a violation at once
+                need = 2 if node.rsplit('/', 1)[-1] in organiser else 1
+                if '_NODE_NAME_UNKNOWN' in node or self._suspects[(node, action, topic)] != need:
                     continue
                 text = f'{node} {action} on {topic}'
                 self.violations.append(dict(t=round(self.ref.elapsed, 1), node=node, action=action, topic=topic))
@@ -338,6 +410,23 @@ class RefereeNode(Node):
             out.linear.x = max(-self.max_v, min(self.max_v, self.last_cmd.linear.x))
             out.angular.z = max(-self.max_w, min(self.max_w, self.last_cmd.angular.z))
         self.pub_cmd.publish(out)
+        # physics watchdog: what the gate let through, and whether simulation time still advances
+        if self.ref.state == RUNNING and self.ref.last_sim is not None:
+            self.ref.physics.command(self.ref.last_sim, out.linear.x)
+
+    def check_sim_advancing(self):
+        """Wall-clock timer (it must not run on simulation time, which is what it watches)."""
+        if self.ref.state != RUNNING or self.ref.last_sim is None:
+            self._sim_wall = time.monotonic()
+            return
+        if self.ref.last_sim != getattr(self, '_sim_seen', None):
+            self._sim_seen, self._sim_wall = self.ref.last_sim, time.monotonic()
+        kind = self.ref.physics.stalled(time.monotonic() - self._sim_wall, self.ref.last_sim)
+        if kind:
+            from .physics import TEAM_TEXT
+            with self.lock:
+                ev = [self.ref.event('PHYSICS_ANOMALY', TEAM_TEXT[kind], 0, kind)]
+            self.emit(ev)
         if self.enable_aftershocks:
             with self.lock:
                 cand = self.ref.aftershock_due()
@@ -356,14 +445,18 @@ class RefereeNode(Node):
             r = subprocess.run(['gz', 'service', '-s', f'/world/{self.gz_world}/create', '--reqtype',
                                 'gz.msgs.EntityFactory', '--reptype', 'gz.msgs.Boolean', '--timeout', '5000',
                                 '--req', req], capture_output=True, text=True)
-            self.get_logger().info(f'aftershock {cand["id"]} spawned at segment {cand["segment"]}: {r.stdout.strip()}')
+            # /rosout is readable by teams (and keeps history): in competition the street is not named there
+            (self.get_logger().debug if self.competition else self.get_logger().info)(
+                f'aftershock {cand["id"]} spawned at segment {cand["segment"]}: {r.stdout.strip()}')
         threading.Thread(target=run, daemon=True).start()
 
     def team_pose(self):
         try:
             t = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
             tr = t.transform.translation
-            return (tr.x, tr.y, yaw_q(t.transform.rotation))
+            pose = (tr.x, tr.y, yaw_q(t.transform.rotation))
+            # a non-finite TF (team-published) must never reach the rescue check
+            return pose if all(math.isfinite(v) for v in pose) else None
         except Exception:
             return None
 
@@ -379,7 +472,7 @@ class RefereeNode(Node):
         s = self.ref.status()
         m = MissionStatus()
         m.header.stamp = self.get_clock().now().to_msg()
-        m.state, m.state_text, m.team_name, m.world_name = s['state'], s['state_text'], s['team'], s['world']
+        m.state, m.state_text, m.team_name, m.world_name = s['state'], s['state_text'], s['team'], self.public_world
         m.elapsed_s, m.time_limit_s, m.remaining_s = float(s['elapsed']), float(s['time_limit']), float(s['remaining'])
         m.score = s['score']
         m.survivors_rescued, m.survivors_total, m.hints_released = s['rescued'], s['total'], s['hints']
@@ -405,8 +498,25 @@ class RefereeNode(Node):
         return m
 
     def srv_info(self, req, res):
+        # Everything here is fixed for the run: built once, then copied (: a flood of calls must not cost
+        # the referee CPU). Calls are counted per wall-clock second for the evaluator (summary.json "api_calls").
+        now = int(time.monotonic())
+        with self.lock:
+            if now != self._info_sec:
+                self._info_sec, self._info_n = now, 0
+            self._info_n += 1
+            self.api_calls['get_mission_info'] = self.api_calls.get('get_mission_info', 0) + 1
+            self.api_calls['max_info_per_s'] = max(self.api_calls.get('max_info_per_s', 0), self._info_n)
+            if self._info_cache is None:
+                self._info_cache = self._build_info(type(res)())
+            c = self._info_cache
+        for f in c.get_fields_and_field_types():
+            setattr(res, f, getattr(c, f))
+        return res
+
+    def _build_info(self, res):
         sc = self.ref.sc
-        res.rules_version, res.world_name, res.team_name = R.RULES_VERSION, sc['world'], self.team
+        res.rules_version, res.world_name, res.team_name = R.RULES_VERSION, self.public_world, self.team
         res.time_limit_s = float(self.ref.time_limit)
         rs = sc['rescue']
         res.rescue_radius_m, res.stop_dwell_s = float(rs['radius_m']), float(rs['stop_dwell_s'])
@@ -443,28 +553,52 @@ class RefereeNode(Node):
         # still judged and answered (a service callback that raises sends no reply at all).
         try:
             os.makedirs(os.path.join(self.log_dir, 'evidence'), exist_ok=True)
-            if req.evidence.data:
+            # only judged reports keep their image, at most 2 MB each and 300 per run (v1.4)
+            if req.evidence.data and code not in ('RATE_LIMITED', 'MISSION_NOT_RUNNING', 'INVALID_REQUEST') and \
+                    len(req.evidence.data) <= 2_000_000 and len(os.listdir(os.path.join(self.log_dir, 'evidence'))) < 300:
                 fn = os.path.join(self.log_dir, 'evidence', f'{self.ref.elapsed:07.1f}_{code}_{sid or "none"}.'
-                                  f'{req.evidence.format.split(";")[0] or "jpg"}')
+                                  f'{"png" if "png" in req.evidence.format.lower() else "jpg"}')
                 open(fn, 'wb').write(bytes(req.evidence.data))
-            rec = dict(t=self.ref.elapsed, code=code, survivor=sid, frame=frame, x=req.estimated_position.point.x,
-                       y=req.estimated_position.point.y, source=req.detection_source, confidence=req.confidence,
-                       description=req.description)
-            with open(os.path.join(self.log_dir, 'reports.jsonl'), 'a') as f:
-                f.write(json.dumps(rec) + '\n')
+            # team text is shortened and the log capped at 20 MB: a flood of huge reports must not fill the disk
+            rec = dict(t=self.ref.elapsed, code=code, survivor=sid, frame=frame[:64], x=req.estimated_position.point.x,
+                       y=req.estimated_position.point.y, source=req.detection_source[:64], confidence=req.confidence,
+                       description=req.description[:500])
+            rp = os.path.join(self.log_dir, 'reports.jsonl')
+            if not os.path.exists(rp) or os.path.getsize(rp) < 20_000_000:
+                with open(rp, 'a') as f:
+                    f.write(json.dumps(rec) + '\n')
         except OSError as e:
             self.get_logger().error(f'could not log the report to {self.log_dir}: {e}')
         return res
 
     def srv_submit(self, req, res):
-        self.ref.submitted = dict(map=req.map, objects=[dict(object_class=o.object_class, color=o.color, label=o.label,
-                                                             x=o.position.x, y=o.position.y, status=o.status,
-                                                             id=o.id, survivor_id=o.survivor_id) for o in req.objects],
-                                  clues=[dict(hint_id=c.hint_id, status=c.status, note=c.note) for c in req.clues],
-                                  rescue_order=list(req.rescue_order), record_json=req.record_json)
+        bad = map_problem(req.map)
+        if bad:
+            res.success, res.message = False, f'record refused: {bad}'
+            return res
+        with self.lock:
+            # the record is frozen when the mission ends: a submission after the finish (time limit, EndMission,
+            # disqualification) would replace the real one before scoring. Hand it in, then end.
+            if self.finalized or self.ref.state not in (RUNNING, PAUSED):
+                res.success, res.message = False, 'record refused: the mission is over (submit before EndMission)'
+                return res
+            now = time.monotonic()
+            if now - self._last_submit < 1.0:     # one record per second is plenty (each one is logged as an event)
+                res.success, res.message = False, 'record refused: at most one submission per second'
+                return res
+            self._last_submit = now
+            self._store_record(req)
         self.emit([self.ref.event('MAP_SUBMITTED', f'record submitted ({len(req.objects)} objects)')])
         res.success, res.message = True, 'record stored'
         return res
+
+    def _store_record(self, req):
+        self.ref.submitted = dict(map=req.map, objects=[dict(object_class=o.object_class[:40], color=o.color[:20], label=o.label[:40],
+                                                             x=o.position.x, y=o.position.y, status=o.status,
+                                                             id=o.id, survivor_id=o.survivor_id) for o in req.objects[:2000]],
+                                  clues=[dict(hint_id=c.hint_id[:64], status=c.status[:32], note=c.note[:500])
+                                         for c in req.clues[:200]],
+                                  rescue_order=list(req.rescue_order)[:50], record_json=req.record_json[:200000])
 
     def srv_end(self, req, res):
         with self.lock:
@@ -491,18 +625,35 @@ class RefereeNode(Node):
         import numpy as np
         m2w_vec = lambda x, y: (ref.start.x + np.cos(ref.start.yaw) * x - np.sin(ref.start.yaw) * y,  # noqa: E731
                                 ref.start.y + np.sin(ref.start.yaw) * x + np.cos(ref.start.yaw) * y)
-        mq = EV.evaluate_map(grid, ref, m2w_vec)
-        sem = EV.evaluate_semantics(objs, ref, m2w)
+        # a malformed map or record scores 0 for that part; it must never stop the summary being written
+        try:
+            if map_problem(grid):
+                grid = None
+            mq = EV.evaluate_map(grid, ref, m2w_vec)
+        except Exception as e:
+            mq = dict(score=0.0, note=f'map could not be evaluated: {type(e).__name__}')
+        try:
+            sem = EV.evaluate_semantics(objs[:2000], ref, m2w)
+        except Exception as e:
+            sem = dict(score=0.0, note=f'record could not be evaluated: {type(e).__name__}')
         loc = EV.localization_error(ref.team_pose_samples)
         with self.lock:
-            ref.add(R.SCORING['map_quality_max'] * mq['score'], 'MAP_QUALITY', f'map score {mq["score"]:.2f}')
-            ref.add(R.SCORING['semantic_max'] * sem['score'], 'SEMANTIC_RECORD', f'semantic score {sem["score"]:.2f}')
+            final_ev = [ref.add(R.SCORING['map_quality_max'] * mq['score'], 'MAP_QUALITY', f'map score {mq["score"]:.2f}'),
+                        ref.add(R.SCORING['semantic_max'] * sem['score'], 'SEMANTIC_RECORD', f'semantic score {sem["score"]:.2f}')]
+        try:
+            self.emit(final_ev)      # so events.jsonl (and the team) see every point: the events add up to the final score
+        except Exception:  # noqa: BLE001 - the summary below must be written whatever happens here
+            pass
         integ = dict(self.integrity)
         for key in ('modified', 'added', 'removed'):
             integ[key] = integ[key][:100]
         summary = dict(team=self.team, world=ref.sc['world'], finish_reason=ref.finish_reason,
-                       final_score=ref.score, official_score=0 if self.disqualified else ref.score,
-                       disqualified=self.disqualified, rule_violations=self.violations, stack_integrity=integ,
+                       final_score=ref.score, official_score=min(0, ref.score) if self.disqualified else ref.score,
+                       disqualified=self.disqualified, rule_violations=self.violations,
+                       graph_review=getattr(self, 'graph_review', [])[:50], api_calls=dict(getattr(self, 'api_calls', {})),
+                       topic_review=getattr(self, 'topic_review', [])[:50], collision_log=ref.collision_log[:500],
+                       physics=ref.physics.summary(), needs_review=ref.physics.summary()['needs_review'] or bool(
+                           getattr(self, 'graph_review', [])) or bool(getattr(self, 'topic_review', [])), stack_integrity=integ,
                        competition=self.competition, violation_policy=self.violation_policy,
                        gz_ip=getattr(self, 'gz_ip', ''),
                        elapsed_s=round(ref.elapsed, 1), time_limit_s=ref.time_limit,
@@ -521,9 +672,19 @@ class RefereeNode(Node):
         if grid is not None and grid.info.width:
             import numpy as np
             from PIL import Image
-            d = np.asarray(grid.data, np.int16).reshape(grid.info.height, grid.info.width)
-            img = np.where(d < 0, 205, np.where(d >= 65, 0, 254)).astype(np.uint8)
-            Image.fromarray(img[::-1]).save(os.path.join(self.log_dir, 'team_map.png'))
+            try:    # the exact grid that was scored, so the map formula can be re-checked offline
+                i = grid.info
+                np.savez_compressed(os.path.join(self.log_dir, 'team_map.npz'),
+                                    data=np.asarray(grid.data, np.int8).reshape(i.height, i.width),
+                                    resolution=i.resolution, origin=[i.origin.position.x, i.origin.position.y])
+            except Exception:
+                pass
+            try:    # a picture that cannot be drawn must not cost the final status and score line
+                d = np.asarray(grid.data, np.int16).reshape(grid.info.height, grid.info.width)
+                img = np.where(d < 0, 205, np.where(d >= 65, 0, 254)).astype(np.uint8)
+                Image.fromarray(img[::-1]).save(os.path.join(self.log_dir, 'team_map.png'))
+            except Exception as e:  # noqa: BLE001
+                self.get_logger().warn(f'team_map.png not written: {type(e).__name__}')
         try:
             self.publish_status()
         except Exception:   # the ROS context is already gone when finalize runs from a Ctrl-C shutdown

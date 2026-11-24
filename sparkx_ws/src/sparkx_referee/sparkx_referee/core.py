@@ -12,6 +12,7 @@ import yaml
 from sparkx_worlds.geometry import BoxSet
 
 from . import rules as R
+from .physics import TEAM_TEXT as PHYSICS_TEXT, Watchdog
 
 WAITING, RUNNING, PAUSED, FINISHED = 0, 1, 2, 3
 STATE_TEXT = {0: 'WAITING', 1: 'RUNNING', 2: 'PAUSED', 3: 'FINISHED'}
@@ -69,7 +70,12 @@ class Referee:
         self.events = []               # dict events for logs / dashboard
         self.released = []             # hint ids
         self.clue_area = {}            # hint id -> (wx, wy, r): the team's search area while its person was unseen
-        self.clue_seen = set()         # hint ids whose person the rover has seen since the clue was released
+        a = self.sc.get('arena') or {}
+        self.physics = Watchdog((a['xmin'], a['xmax'], a['ymin'], a['ymax']) if 'xmin' in a else None)
+        self.clue_seen = set()
+        self.clue_anchor = {}          # hint id -> where the team's search centre last settled
+        self.clue_moves = {}           # hint id -> how often the team's search centre jumped
+        self.clue_forfeit = set()      # hint ids whose area moved too often: no +50         # hint ids whose person the rover has seen since the clue was released
         self.rescue_order = []
         self.collisions = 0
         self.false_reports = 0
@@ -79,6 +85,8 @@ class Referee:
         self.still_since = None
         self.last_report = -1e9
         self.last_collision = {}
+        self.contact_since = {}        # collision element -> start of the current continuous contact
+        self.collision_log = []        # (t, collision element) for the evaluator; not shown to the team
         self.fire_accum = 0.0
         self.finish_reason = ''
         self.aftershocks_done = []
@@ -94,8 +102,11 @@ class Referee:
         return int(round(sum(p for _, p, *_ in self.score_items)))
 
     def add(self, pts, typ, text, ref=''):
+        # the event shows how much the rounded total moved, so the events always add up to the final
+        # score; the total itself is rounded only once, from the exact points
+        before = self.score
         self.score_items.append((self.elapsed, pts, typ, text, ref))
-        return self.event(typ, text, pts, ref)
+        return self.event(typ, text, self.score - before, ref)
 
     def event(self, typ, text, pts=0, ref=''):
         e = dict(t=round(self.elapsed, 2), wall=time.time(), type=typ, description=text, score_delta=int(pts),
@@ -121,6 +132,7 @@ class Referee:
 
     # ------------------------------------------------------------------ lifecycle
     def start_mission(self):
+        self.physics.reset()
         if self.state in (WAITING, PAUSED):
             self.state = RUNNING
             return [self.event('MISSION_STARTED' if not self.events else 'MISSION_RESUMED', 'Mission running')]
@@ -167,18 +179,27 @@ class Referee:
             self.still_since = self.still_since if self.still_since is not None else self.elapsed
         else:
             self.still_since = None
-        # fires
+        # fires: health drops for every fire the rover is in; points are -2 per second inside any fire,
+        # counted once however many fires overlap, and every whole second is charged even after a gap
+        # between updates
+        hot = None
         for f in self.sc['fires']:
             d = math.hypot(p.x - f['x'], p.y - f['y'])
             if d < f['hazard_radius']:
                 rate = R.HEALTH['fire_danger_per_s'] if d < f['danger_radius'] else R.HEALTH['fire_hazard_per_s']
                 self.health = max(0.0, self.health - rate * dt)
-                self.fire_accum += dt
-                if self.fire_accum >= 1.0:
-                    self.fire_accum -= 1.0
-                    ev.append(self.add(R.SCORING['fire_damage_per_s'], 'FIRE_DAMAGE',
-                                       f'Robot inside fire hazard ({f["id"]}), health {self.health:.0f}%', f['id']))
+                if hot is None or d < hot[0]:
+                    hot = (d, f)
+        if hot is not None:
+            f = hot[1]
+            self.fire_accum += dt
+            while self.fire_accum >= 1.0:
+                self.fire_accum -= 1.0
+                ev.append(self.add(R.SCORING['fire_damage_per_s'], 'FIRE_DAMAGE',
+                                   f'Robot inside fire hazard ({f["id"]}), health {self.health:.0f}%', f['id']))
         ev += self.timing_rules(p)
+        for kind in self.physics.update(sim_t, p.x, p.y, self.pose['z']):
+            ev.append(self.event('PHYSICS_ANOMALY', PHYSICS_TEXT[kind], 0, kind))
         self.clue_sightings(p)
         # flip
         if abs(self.pose['roll']) > R.FLIP_ANGLE_RAD or abs(self.pose['pitch']) > R.FLIP_ANGLE_RAD:
@@ -208,8 +229,13 @@ class Referee:
                 near = math.hypot(s['x'] - p.x, s['y'] - p.y) <= self.rs['radius_m'] and \
                     self.los((p.x, p.y, CAMERA_Z), (s['x'], s['y'], s['z']), s['body'])
                 if not near:
-                    s['near_since'] = None          # leaving the zone (or losing sight) resets the clock
+                    # the clock resets only after REPORT_RESET_S outside the zone, so hopping out for a
+                    # moment does not restart it (v1.4)
+                    s['away_since'] = s.get('away_since') if s.get('away_since') is not None else self.elapsed
+                    if self.elapsed - s['away_since'] >= R.REPORT_RESET_S:
+                        s['near_since'] = None
                     continue
+                s['away_since'] = None
                 if s['near_since'] is None:
                     s['near_since'] = self.elapsed
                 elif self.elapsed - s['near_since'] > R.REPORT_WINDOW_S:
@@ -236,23 +262,31 @@ class Referee:
         model = other.split('::')[0]
         if model in ('ground_plane',) or model.startswith('sparkx_ugv'):
             return []
-        last = self.last_collision.get(model, -1e9)
+        # obstacles are counted per collision element, not per model: one model can be a whole city block
+        key = model if model.startswith('survivor_') else other
+        last = self.last_collision.get(key, -1e9)
         if model.startswith('survivor_'):
             # at most one penalty per survivor every SURVIVOR_CONTACT_DEBOUNCE_S
             if self.elapsed - last < R.SURVIVOR_CONTACT_DEBOUNCE_S:
                 return []
-            self.last_collision[model] = self.elapsed
+            self.last_collision[key] = self.elapsed
         else:
-            # continuous contact counts once; a new event needs 1 s without contact
-            self.last_collision[model] = self.elapsed
+            # a new event needs 1 s without contact, or COLLISION_REPEAT_S of continuous contact (v1.4)
+            self.last_collision[key] = self.elapsed
             if self.elapsed - last < R.COLLISION_DEBOUNCE_S:
-                return []
+                since = self.contact_since.setdefault(key, self.elapsed)
+                if self.elapsed - since < R.COLLISION_REPEAT_S:
+                    return []
+            self.contact_since[key] = self.elapsed
         if model.startswith('survivor_'):
-            return [self.add(R.SCORING['survivor_contact'], 'SURVIVOR_CONTACT', f'Robot touched {model}', model)]
+            return [self.add(R.SCORING['survivor_contact'], 'SURVIVOR_CONTACT', 'Robot touched a person')]
         self.collisions += 1
-        return [self.add(R.SCORING['collision'], 'COLLISION', f'Collision with {model}', model)]
+        # the text never names the object: "mannequin_d01" would tell a team which figure is a decoy
+        self.collision_log.append((round(self.elapsed, 1), other))
+        return [self.add(R.SCORING['collision'], 'COLLISION', 'Collision with an obstacle')]
 
     def intervention(self, note):
+        self.physics.reset()            # an organiser may move the rover
         return [self.add(R.SCORING['intervention'], 'INTERVENTION', note or 'Manual intervention')]
 
     # ------------------------------------------------------------------ rescue
@@ -262,6 +296,8 @@ class Referee:
         ev = []
         if self.state != RUNNING:
             return 'MISSION_NOT_RUNNING', 'mission is not running', '', 0, -1.0, [], ev
+        if team_pose is not None and not all(map(math.isfinite, team_pose)):
+            team_pose = None                     # a broken team pose is treated as no pose (fails closed)
         if frame not in ('map', 'base_link') or not all(map(math.isfinite, (ex, ey))):
             return 'INVALID_REQUEST', 'frame_id must be map or base_link', '', 0, -1.0, [], ev
         if self.elapsed - self.last_report < R.REPORT_RATE_LIMIT_S:
@@ -299,16 +335,18 @@ class Referee:
                 err_rel = math.hypot(match['x'] - rel_w[0], match['y'] - rel_w[1])
                 if not self.los((p.x, p.y, CAMERA_Z), (match['x'], match['y'], match['z']), match['body']):
                     code, msg = 'NO_LINE_OF_SIGHT', 'no line of sight between robot and survivor'
-                elif err_rel > self.rs['report_tolerance_m']:
-                    code, msg = 'POSITION_MISMATCH', f'reported position is {err_rel:.2f} m off'
+                elif not err_rel <= self.rs['report_tolerance_m']:      # also refuses NaN (fails closed)
+                    # no distance in the message: it would let a team home in by trial reports (v1.4)
+                    code, msg = 'POSITION_MISMATCH', f'reported position is more than {self.rs["report_tolerance_m"]:.1f} m off'
                 else:
                     code, sid = 'CONFIRMED', match['id']
         if code != 'CONFIRMED':
             pts = 0
             if code in PENALIZED:
                 self.false_reports += 1
-                pts = R.SCORING['false_report']
-                ev.append(self.add(pts, 'RESCUE_REJECTED', f'{code}: {msg}', sid))
+                e = self.add(R.SCORING['false_report'], 'RESCUE_REJECTED', f'{code}: {msg}', sid)
+                pts = e['score_delta']
+                ev.append(e)
             else:
                 ev.append(self.event('RESCUE_REJECTED', f'{code}: {msg}', 0, sid))
             return code, msg, sid, pts, -1.0, [], ev
@@ -320,10 +358,11 @@ class Referee:
         acc = R.SCORING['accuracy_bonus_max'] * max(0.0, 1.0 - err_rel / self.rs['report_tolerance_m'])
         pts = R.SCORING['rescue'] + acc
         text = f'{sid} rescued (error {err_rel:.2f} m, map error {err_abs:.2f} m)'
-        if self.clue_led(sid):
+        if self.clue_led(sid, team_pose):
             pts += R.SCORING['rescue_via_hint']
             text += ' - clue-led rescue'
-        ev.append(self.add(pts, 'RESCUE_CONFIRMED', text, sid))
+        e = self.add(pts, 'RESCUE_CONFIRMED', text, sid)
+        ev.append(e)
         new_hints = []
         for hid in s.get('releases', []):
             if hid not in self.released:
@@ -331,7 +370,7 @@ class Referee:
                 self.hints[hid]['released_at'] = self.elapsed
                 new_hints.append(self.hints[hid])
                 ev.append(self.event('HINT_RELEASED', self.hints[hid]['text'], 0, hid))
-        return 'CONFIRMED', text, sid, int(round(pts)), err_abs, new_hints, ev
+        return 'CONFIRMED', text, sid, e['score_delta'], err_abs, new_hints, ev
 
     # ------------------------------------------------------------------ clue-led rescues (rules v1.3)
     def clue_sightings(self, p):
@@ -362,20 +401,39 @@ class Referee:
                 continue
             if not all(map(math.isfinite, (cx, cy, r))) or not 0.0 < r <= R.CLUE_MAX_SEARCH_RADIUS_M:
                 continue
-            if team_pose is not None:
-                wx, wy = p.apply(*Pose2(*team_pose).inverse_apply(cx, cy))
-            else:
-                wx, wy = self.map_to_world(cx, cy)
+            if hid in self.clue_forfeit:
+                continue
+            # kept in the team's own map frame: converting with a true pose and a TF taken at slightly
+            # different times would make a fixed area appear to move while the rover turns
+            wx, wy = cx, cy
+            anchor = self.clue_anchor.get(hid)
+            if anchor is None:
+                self.clue_anchor[hid] = (wx, wy)
+            elif math.hypot(wx - anchor[0], wy - anchor[1]) > R.CLUE_MOVE_M:
+                # a search area that keeps moving (e.g. one that follows the rover) is not a resolved clue;
+                # drift is measured from where the area last settled, so small steps add up
+                self.clue_anchor[hid] = (wx, wy)
+                self.clue_moves[hid] = self.clue_moves.get(hid, 0) + 1
+                if self.clue_moves[hid] > R.CLUE_MAX_MOVES:
+                    self.clue_forfeit.add(hid)
+                    self.clue_area.pop(hid, None)
+                    continue
             self.clue_area[hid] = (wx, wy, r)
 
-    def clue_led(self, sid):
+    def clue_led(self, sid, team_pose=None):
         """True when a released clue points at survivor sid and the team's last search area for it,
         published before the rover saw the person, holds the person."""
         s = self.survivors[sid]
         for hid in self.released:
             if self.hints[hid]['target'] != sid or hid not in self.clue_area:
                 continue
-            wx, wy, r = self.clue_area[hid]
+            mx, my, r = self.clue_area[hid]
+            # to the world through the rover's own map->base_link at the report (it has stood still 2 s),
+            # so SLAM drift does not count against the team
+            if team_pose is not None:
+                wx, wy = self.pose['p'].apply(*Pose2(*team_pose).inverse_apply(mx, my))
+            else:
+                wx, wy = self.map_to_world(mx, my)
             if math.hypot(s['x'] - wx, s['y'] - wy) <= r + R.CLUE_AREA_SLACK_M:
                 return True
         return False

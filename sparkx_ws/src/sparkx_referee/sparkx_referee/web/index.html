@@ -8,7 +8,7 @@
  *{box-sizing:border-box}
  body{margin:0;font-family:Lato,"Segoe UI",system-ui,sans-serif;background:var(--ink);color:var(--paper);font-size:14px}
  header{display:flex;align-items:center;gap:18px;padding:12px 20px;background:#111;border-bottom:3px solid var(--crimson);flex-wrap:wrap}
- header img{height:34px;display:block} header img.stem{height:26px}
+ header img{height:34px;display:block} header img.partners{height:40px;max-width:100%}
  .divider{width:1px;height:30px;background:var(--line)}
  .slashes{display:flex;gap:5px;margin-left:2px} .slashes i{display:block;width:5px;height:26px;background:var(--paper);transform:skewX(-24deg)}
  header h1{font-size:15px;letter-spacing:.14em;text-transform:uppercase;margin:0;font-weight:800}
@@ -45,9 +45,8 @@
  @media (max-width:900px){main{grid-template-columns:1fr}}
 </style></head><body>
 <header>
- <img src="/brand/airoot.png" alt="Airoot" onerror="this.replaceWith(document.createTextNode('Airoot'))">
- <div class="divider"></div>
- <img class="stem" src="/brand/stemlearn.png" alt="STEMLearn.AI" onerror="this.replaceWith(document.createTextNode('STEMLearn.AI'))">
+ <img class="partners" src="/brand/header.png" alt="IIIT Allahabad | STEMLearn.AI | Airoot | Presented at IIT Bombay Techfest"
+      onerror="this.replaceWith(document.createTextNode('IIIT Allahabad · STEMLearn.AI · Airoot · Presented at IIT Bombay Techfest'))">
  <div class="slashes" aria-hidden="true"><i></i><i></i><i></i></div>
  <h1>SparkX <span>Disaster Response Challenge</span> &middot; Referee</h1>
  <div class="who"><b id="team">-</b><span id="world">-</span></div>

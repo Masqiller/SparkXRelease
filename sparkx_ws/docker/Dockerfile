@@ -6,7 +6,7 @@
 #   docker build -t sparkx -f docker/Dockerfile --build-arg REQUIRE_PRISTINE=true .   # competition release
 #
 # The same image is the base of every team image (docker/Dockerfile.team), so a team's code always
-# runs against exactly this stack. WITH_ML=true adds the published ML libraries teams may import.
+# runs against exactly this stack, with the official ML kit (numpy 1.26.4, OpenCV 4.6, onnxruntime 1.32.0 CPU).
 FROM osrf/ros:jazzy-desktop-full
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -15,11 +15,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ros-jazzy-cv-bridge ros-jazzy-xacro python3-scipy python3-opencv python3-pil python3-yaml python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# Published machine-learning libraries (the only third-party Python packages team code may rely on).
-ARG WITH_ML=false
-RUN if [ "$WITH_ML" = "true" ]; then \
-      pip3 install --no-cache-dir --break-system-packages ultralytics onnxruntime scikit-learn ; \
-    fi
+# The official ML kit (RULES.md section 6): apt's numpy and OpenCV (above) plus onnxruntime.
+# Pinned and installed without dependencies, so apt's numpy 1.26 (which ROS needs) stays untouched.
+RUN pip3 install --no-cache-dir --break-system-packages --no-deps onnxruntime==1.32.0 \
+    && python3 -c "import numpy, cv2, onnxruntime; assert (numpy.__version__, cv2.__version__, onnxruntime.__version__) == ('1.26.4', '4.6.0', '1.32.0'), (numpy.__version__, cv2.__version__)"
 
 WORKDIR /sparkx_ws
 COPY TEAM_FILES.txt LOCKED_MANIFEST.sha256* ./

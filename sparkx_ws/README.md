@@ -1,6 +1,8 @@
+<p align="center"><img src="src/sparkx_worlds/models/sparkx_media/brand/header_strip_dark.png" alt="IIIT Allahabad | STEMLearn.AI | Airoot | Presented at IIT Bombay Techfest" width="100%"></p>
+
 # SparkX Disaster Response Challenge — Simulation Stack
 
-**Airoot × STEMLearn.AI.** ROS 2 Jazzy + Gazebo Harmonic stack for the AI theme of the SparkX
+**IIIT Allahabad · STEMLearn.AI · Airoot · presented at IIT Bombay Techfest.** ROS 2 Jazzy + Gazebo Harmonic stack for the AI theme of the SparkX
 Robotics & AI Challenge: a rescue rover explores a bomb-blast city block, finds trapped survivors,
 confirms each rescue with the referee, follows the clues that rescued people give, and returns to
 base.
@@ -66,6 +68,7 @@ mission is RUNNING, 0.5 s timeout).
 sudo apt install ros-jazzy-desktop ros-jazzy-ros-gz ros-jazzy-navigation2 ros-jazzy-nav2-bringup \
   ros-jazzy-slam-toolbox ros-jazzy-robot-localization ros-jazzy-pointcloud-to-laserscan \
   ros-jazzy-vision-msgs ros-jazzy-cv-bridge python3-scipy python3-opencv python3-pil
+sudo python3 -m pip install --break-system-packages --no-deps onnxruntime==1.32.0   # with apt's numpy and OpenCV: the official ML kit (RULES §6)
 cd sparkx_ws && colcon build && source install/setup.bash
 ```
 
@@ -122,7 +125,7 @@ junction has a numbered marker, people hidden from the streets are clue targets,
 |---|---|---|
 | Rover model, world kit (container, water tower, tent, rubble, window / door sets, furniture, street and base-camp gear) | `tools/blender/` → `sparkx_description/meshes`, `sparkx_worlds/models/sparkx_kit` | see [`tools/blender/README.md`](tools/blender/README.md) |
 | Surface materials (scanned brick, plaster, concrete, asphalt, metal; albedo + normal + roughness) | `sparkx_worlds/pbr.py` from Poly Haven CC0 scans | `ros2 run sparkx_worlds make_textures` |
-| Airoot / STEMLearn.AI panels, start pad, flags, signs | `sparkx_worlds/branding.py`, artwork in `models/sparkx_media/brand/` | `ros2 run sparkx_worlds make_textures` |
+| Partner posters (header order: IIIT Allahabad, STEMLearn.AI, Airoot, IIT Bombay Techfest), start gate, start pad, flags, signs | `sparkx_worlds/branding.py`, artwork in `models/sparkx_media/brand/` | `ros2 run sparkx_worlds make_textures` |
 | Bomb damage rendered in Blender and imported as cut-out decals: debris fields, shell craters, shell-holes in walls; the war sky (low sun, haze, ruined skyline) | `tools/blender/render_decals.py` → `models/sparkx_media/textures/decal_*.png`, `sky_war.jpg` | re-render, then `make_textures` |
 | Shelled buildings, broken skylines, street debris, soot and cracks | `sparkx_worlds/warzone.py` (applied to every generated world) | regenerate the worlds |
 | Vehicles, people, collapsed buildings | Gazebo Fuel models (`models/ATTRIBUTION.md`) | `ros2 run sparkx_worlds import_assets` |
