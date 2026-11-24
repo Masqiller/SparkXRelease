@@ -20,8 +20,8 @@ INTEGRITY_RANK = {'ok': 0, 'unverified': 1, 'modified': 2}
 
 def official(run, require_integrity=False):
     """Score that counts for the ranking."""
-    if run.get('disqualified'):
-        return 0
+    if run.get('disqualified'):          # a disqualified run never scores more than 0, and never less than it earned
+        return min(0, int(run.get('final_score', 0)))
     if require_integrity and integrity_of(run) != 'ok':
         return 0
     return int(run.get('official_score', run.get('final_score', 0)))

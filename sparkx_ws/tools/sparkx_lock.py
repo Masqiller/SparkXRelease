@@ -20,6 +20,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shutil
 import stat
 import sys
 import time
@@ -284,8 +285,8 @@ def cmd_load(a, I):
             if os.path.lexists(dst):
                 os.chmod(dst, 0o644) if not os.path.islink(dst) else None
                 os.remove(dst)
-            with open(dst, 'wb') as f:
-                f.write(z.read(info))
+            with z.open(info) as src, open(dst, 'wb') as f:
+                shutil.copyfileobj(src, f, 1 << 20)      # streamed: a large model never sits in memory
             os.chmod(dst, 0o644)
     after = I.verify(target)
     print(f'loaded {len(members)} files from team "{meta.get("team", "?")}" into {target}')

@@ -176,7 +176,7 @@ def build_base(scene, ctx, blk):
     kit.place(g, 'gantry', (gx, cy, 0.0), 0.0)
     for yaw, off in ((0.0, 0.24), (math.pi, -0.24)):
         g.mesh('brand_gantry').add_panel((gx + off, cy, 4.8), 7.0, 1.0, yaw)
-    # relief tent with an Airoot board, container with a STEMLearn.AI board
+    # relief tent and container boards (artwork by partner priority: see branding.py)
     tx, ty = x0 + 3.5, y1 - 4.0
     if place_landmark(scene, ctx, 'tent', tx, ty, 0.0, color='white'):
         g.mesh('brand_airoot').add_panel((tx, ty - 1.9, 1.05), 2.4, 1.2, -math.pi / 2)

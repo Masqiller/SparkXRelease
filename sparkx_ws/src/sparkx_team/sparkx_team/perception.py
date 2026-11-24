@@ -29,7 +29,8 @@ FACTS YOU CAN BUILD ON
 
 WHERE YOUR TRAINED MODEL GOES
     Put the weights in sparkx_team/models/ (data only). That folder is given to this node as the
-    `model_dir` parameter; load them in `load_team_model()`.
+    `model_dir` parameter; load them in `load_team_model()`. Formats the evaluation can open: RULES.md
+    section 6 (plain numbers for numpy, a cv2.ml model, or ONNX). A small classifier is recommended.
 """
 import cv2
 import numpy as np

@@ -46,7 +46,9 @@ def brand_dir():
 
 
 def brand_images(height=96):
-    """{'airoot': png bytes, 'stemlearn': png bytes} for a dark header, or {} if the artwork is missing."""
+    """{'header': png bytes, 'airoot': ..., 'stemlearn': ...} for a dark header, or {} if the artwork is
+    missing. 'header' is the official partner strip (IIIT Allahabad | STEMLearn.AI | Airoot | Presented
+    at IIT Bombay Techfest, left to right = priority); the page shows it."""
     out = {}
     d = brand_dir()
     if not d:
@@ -57,6 +59,15 @@ def brand_images(height=96):
         b = io.BytesIO()
         im.save(b, 'PNG')
         return b.getvalue()
+    try:
+        im = Image.open(os.path.join(d, 'header_strip_on_dark.png')).convert('RGBA')
+        a = np.asarray(im)[..., 3]
+        ys, xs = np.nonzero(a > 8)
+        im = im.crop((xs.min(), ys.min(), xs.max() + 1, ys.max() + 1))
+        h = 2 * height                                   # 2x for sharp text on high-density screens
+        out['header'] = png(im.resize((max(1, im.width * h // im.height), h), Image.LANCZOS))
+    except Exception:
+        pass
     try:
         m = Image.open(os.path.join(d, 'airoot_logo_mask.png')).convert('L')
         m = m.resize((max(1, m.width * height // m.height), height), Image.LANCZOS)
@@ -152,7 +163,7 @@ class Dashboard:
 
         self.httpd = ThreadingHTTPServer((host, port), H)
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
-        node.get_logger().info(f'dashboard: http://{host}:{port}  (admin token: {self.token}'
+        node.get_logger().info(f'dashboard: http://{host}:{port}  (admin token: {self.token[:2] + '... (competition: not logged, the host tool holds it)' if getattr(node, 'competition', False) else self.token}'
                                f'{"" if self.open else "; also required to VIEW (competition run, or the host is not loopback)"})')
 
     # thermal palette: black -> purple -> red -> orange -> yellow -> white over THERMAL_RANGE_K

@@ -49,8 +49,18 @@ def _r(v, n=3):
 MIN_HINTS = {'small': 1, 'medium': 2, 'large': 3}
 
 
+def salted_seed(seed, salt=None):
+    """The number the random generators are built from. Without a salt it is the seed itself (practice worlds,
+    reproducible by everyone). With the organisers' secret salt (a file kept outside the stack, never shipped) it is
+    a 256-bit hash of salt and seed, which keeps competition worlds private."""
+    if not salt:
+        return int(seed)
+    import hashlib
+    return int.from_bytes(hashlib.sha256(b'sparkx-world\0' + salt + b'\0' + str(int(seed)).encode()).digest(), 'big')
+
+
 def generate(name, seed=0, size='medium', difficulty='normal', lighting='day', out_dir='.', models_dir=None,
-             time_limit=None, preview=True, verbose=True, max_attempts=12):
+             time_limit=None, preview=True, verbose=True, max_attempts=12, salt=None):
     """Generate a world that passes the quality gate: enough survivors, enough clues (at least one
     clue chain per world, more on bigger maps). A seed that gives a weak layout is re-rolled
     deterministically (variant 1, 2, ...), so the same seed always yields the same world."""
@@ -58,7 +68,7 @@ def generate(name, seed=0, size='medium', difficulty='normal', lighting='day', o
     last = None
     for variant in range(max_attempts):
         wdir, sc = _generate(name, seed, variant, size, difficulty, lighting, out_dir, models_dir, time_limit, preview,
-                             verbose=False)
+                             verbose=False, key=salted_seed(seed, salt))
         last = (wdir, sc)
         ok = len(sc['hints']) >= MIN_HINTS[size] and len(sc['survivors']) >= want_s
         if ok:
@@ -75,11 +85,13 @@ def generate(name, seed=0, size='medium', difficulty='normal', lighting='day', o
     return wdir, sc
 
 
-def _generate(name, seed, variant, size, difficulty, lighting, out_dir, models_dir, time_limit, preview, verbose=False):
+def _generate(name, seed, variant, size, difficulty, lighting, out_dir, models_dir, time_limit, preview, verbose=False,
+              key=None):
+    key = int(seed) if key is None else key            # what the generators are built from (salted_seed)
     t0 = time.time()
     models_dir = models_dir or default_models_dir()
     cat = load_catalog(models_dir)
-    rng = np.random.default_rng(seed if variant == 0 else [seed, variant])
+    rng = np.random.default_rng(key if variant == 0 else [key, variant])
     lay = city.Layout(*city.SIZES[size], block=float(rng.uniform(23, 26)), street=float(rng.uniform(9.5, 11)))
     wdir = os.path.join(out_dir, name)
     if os.path.exists(wdir):
@@ -113,11 +125,11 @@ def _generate(name, seed, variant, size, difficulty, lighting, out_dir, models_d
     # numbered location markers: their own random stream, so they change nothing else in the world
     usable = H.usable_landmarks(scene, gt, spts)
     marker_list = MK.place_markers(scene, lay, gt, spts, usable, survivors + decoys,
-                                   np.random.default_rng([int(seed), int(variant), 7741]))
+                                   np.random.default_rng([key, int(variant), 7741]))
     # heat sources (things at body temperature that are not people): only where the fires are thick,
     # i.e. smoky lighting; their own random stream as well
     heat_list = HEAT.place_heat_sources(scene, gt, spts, survivors + decoys, size,
-                                        np.random.default_rng([int(seed), int(variant), 9151])) if lighting == 'smoky' else []
+                                        np.random.default_rng([key, int(variant), 9151])) if lighting == 'smoky' else []
     rows, tags = scene.all_boxes()
     gt = GroundTruth(rows, tags, scene.bounds, start[:2], fires=[(f['x'], f['y']) for f in scene.fires])
     spts = street_points(scene, gt)
@@ -170,7 +182,7 @@ def _generate(name, seed, variant, size, difficulty, lighting, out_dir, models_d
                             occupied_thresh=0.65, free_thresh=0.25, mode='trinary'), f)
     tl = time_limit or TIME_LIMITS[size] + (300.0 if difficulty == 'hard' else 0.0)
     scenario = dict(
-        rules_version=RULES_VERSION, world=name, seed=int(seed), seed_variant=int(variant), size=size, difficulty=difficulty, lighting=lighting,
+        rules_version=RULES_VERSION, world=name, seed=int(seed), salted=key != int(seed), seed_variant=int(variant), size=size, difficulty=difficulty, lighting=lighting,
         arena=dict(xmin=0.0, ymin=0.0, xmax=round(lay.W, 2), ymax=round(lay.H, 2), block=round(lay.B, 2),
                    street=round(lay.S, 2), grid=[lay.nx, lay.ny]),
         start=dict(x=float(start[0]), y=float(start[1]), z=0.05, yaw=float(start[2])),
@@ -235,8 +247,17 @@ def main(argv=None):
     p.add_argument('--models-dir', default=None)
     p.add_argument('--time-limit', type=float, default=None)
     p.add_argument('--no-preview', action='store_true')
+    p.add_argument('--salt-file', default=None, help='organisers only: a secret file mixed into the seed, so that the '
+                   'world private (keep it outside the stack; never ship it)')
     a = p.parse_args(argv)
-    generate(a.name, a.seed, a.size, a.difficulty, a.lighting, a.out, a.models_dir, a.time_limit, not a.no_preview)
+    salt = None
+    if a.salt_file:
+        with open(os.path.expanduser(a.salt_file), 'rb') as f:
+            salt = f.read().strip()
+        if len(salt) < 16:
+            p.error(f'{a.salt_file}: the salt must be at least 16 bytes of random data')
+    generate(a.name, a.seed, a.size, a.difficulty, a.lighting, a.out, a.models_dir, a.time_limit, not a.no_preview,
+             salt=salt)
 
 
 if __name__ == '__main__':

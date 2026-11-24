@@ -55,5 +55,5 @@ ros2 run sparkx_worlds make_practice_worlds
 ## Textures
 
 Surface textures are not made in Blender. `ros2 run sparkx_worlds make_textures` builds them from
-Poly Haven CC0 scans (`sparkx_worlds/pbr.py`) and draws the signs and Airoot / STEMLearn.AI panels
+Poly Haven CC0 scans (`sparkx_worlds/pbr.py`) and draws the signs and the partner posters
 (`sparkx_worlds/branding.py`). Brand source artwork is in `models/sparkx_media/brand/`.

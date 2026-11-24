@@ -1,6 +1,8 @@
+<p align="center"><img src="sparkx_ws/src/sparkx_worlds/models/sparkx_media/brand/header_strip_dark.png" alt="IIIT Allahabad | STEMLearn.AI | Airoot | Presented at IIT Bombay Techfest" width="100%"></p>
+
 # SparkX Disaster Response Challenge — Team Kit
 
-**SparkX Robotics & AI Challenge · AI theme · powered by Airoot × STEMLearn.AI**
+**SparkX Robotics & AI Challenge · AI theme · IIIT Allahabad · STEMLearn.AI · Airoot · presented at IIT Bombay Techfest**
 
 This repository is everything your team needs to build, test and hand in your solution: the
 simulator (ROS 2 Jazzy + Gazebo Harmonic), the disaster-city worlds, the rescue rover, the referee
@@ -40,11 +42,12 @@ tuned to the practice worlds will not do well. Build something that works on any
 
 ## 2. The rules in one minute
 
-Full rules: [`sparkx_ws/docs/RULES.md`](sparkx_ws/docs/RULES.md) (v1.3). The ones that matter most:
+Full rules: [`sparkx_ws/docs/RULES.md`](sparkx_ws/docs/RULES.md) (v1.4). The ones that matter most:
 
-> **New in v1.3:** the +50 for a clue-led rescue is paid only if your rover really used the clue:
-> before it could see the person, your `/team/clues` entry for that clue was `SEARCHING` with a
-> `search_center` and a `search_radius_m` (at most 15 m) around them. See RULES §2, "Clue-led rescues".
+> **New in v1.4:** the clue +50 needs your `/team/clues` search area (radius at most 8 m, at most 3
+> centre jumps) around the person before the rover could see them; the map score also checks your walls
+> and that "free" is drivable ground; false objects in the record cost in full; collisions count per
+> obstacle element; the referee flags motion the platform cannot produce. See `sparkx_ws/docs/RULES.md`.
 
 | | |
 |---|---|
@@ -61,6 +64,23 @@ across worlds, and your documentation and demo (see RULES §7).
 
 **A trained model of your own is required.** It must be more than an unchanged pre-trained
 detector, and its output must change what the rover does.
+
+**Your model must run with the official ML kit** (RULES §6): numpy 1.26.4, OpenCV 4.6 (`cv2.ml`) and
+`onnxruntime` 1.32.0 on the CPU, nothing else (no PyTorch, Ultralytics, TensorFlow or scikit-learn on
+the evaluation machine). Train with any tool you like, then hand the model in at one of three levels:
+
+| Level | Files in `models/` | Runs with |
+|---|---|---|
+| 1. Plain numbers (recommended) | `.json` `.csv` `.npy` `.npz` | numpy, in a few lines of your own |
+| 2. OpenCV model | `.xml` / `.yml` saved by `cv2.ml` | `cv2.ml.<Type>_load()` |
+| 3. ONNX | `.onnx` | `onnxruntime` |
+
+**Start with a small classifier** (level 1 or 2): measure a few numbers about each candidate your
+sensors find (size, shape, temperature, colour) and let your model decide "person or not". It trains
+in seconds, cannot fail to load, and is enough to win. Pickles (`.pt`, `.pkl`, `.joblib`) are not
+allowed. Before every scored run the organisers open each model file with the kit: **a model that
+does not load is your responsibility, and the run is scored without it.** Check yours with
+`python3 sparkx_ws/tools/model_selftest.py` (TEAM_GUIDE §3).
 
 ## 3. What you edit: four files, nothing else
 
@@ -92,9 +112,10 @@ GPU), about 3 GB of disk.
 sudo apt install ros-jazzy-desktop ros-jazzy-ros-gz ros-jazzy-navigation2 ros-jazzy-nav2-bringup \
   ros-jazzy-slam-toolbox ros-jazzy-robot-localization ros-jazzy-pointcloud-to-laserscan \
   ros-jazzy-vision-msgs ros-jazzy-cv-bridge python3-scipy python3-opencv python3-pil
+sudo python3 -m pip install --break-system-packages --no-deps onnxruntime==1.32.0   # the official ML kit (RULES §6)
 
 # 2. get the kit and build it
-git clone https://github.com/Masqiller/SparkXRelease.git
+git clone https://github.com/airootinfinity/SparkX_AI_Challenge.git SparkXRelease
 cd SparkXRelease/sparkx_ws
 source /opt/ros/jazzy/setup.bash
 colcon build && source install/setup.bash
@@ -177,7 +198,8 @@ python3 tools/sparkx_lock.py pack <team_name>      # -> <team_name>_submission.z
 ```
 
 `pack` checks the four files compile and that `models/` holds only data (no code, no sub-folders,
-≤ 500 MB per file, ≤ 1.5 GB in total). Upload the zip to the folder the organisers give you. The
+≤ 500 MB per file, ≤ 1.5 GB in total). Run `python3 tools/model_selftest.py` too: it opens every model
+exactly as the evaluation does. Upload the zip to the folder the organisers give you. The
 file name is your team name on the leaderboard. Your software then runs on the organisers' machine,
 on worlds you have not seen, without network access and with an 8 GB memory limit. It cannot read
 files outside your own package.
@@ -202,7 +224,7 @@ Only the organisers' run of your zip counts. You are **disqualified on that worl
 | Document | Read it for |
 |---|---|
 | [`docs/TEAM_GUIDE.md`](sparkx_ws/docs/TEAM_GUIDE.md) | what each of your files must do, training a model, practising, handing in |
-| [`docs/RULES.md`](sparkx_ws/docs/RULES.md) | the complete rules and scoring (v1.3) |
+| [`docs/RULES.md`](sparkx_ws/docs/RULES.md) | the complete rules and scoring (v1.4) |
 | [`docs/INTERFACES.md`](sparkx_ws/docs/INTERFACES.md) | every topic, service and message you can use |
 | [`sparkx_ws/README.md`](sparkx_ws/README.md) | the stack: packages, robot and sensors, worlds |
 | [`docs/HOSTING.md`](sparkx_ws/docs/HOSTING.md) | how the organisers run your submission |

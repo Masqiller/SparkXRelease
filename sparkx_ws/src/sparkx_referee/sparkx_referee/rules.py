@@ -1,6 +1,6 @@
 """SparkX scoring rules (public, see docs/RULES.md). All values are points."""
 
-RULES_VERSION = '1.3'       # 1.2: report window at a survivor, idle limit; 1.3: clue bonus needs the team's search area
+RULES_VERSION = '1.4'       # 1.2 timing rules; 1.3 clue area; 1.4 audit fixes (clue moves, map, record, contacts, watchdog)
 
 SCORING = dict(
     rescue=100,                 # confirmed rescue
@@ -23,18 +23,22 @@ SCORING = dict(
 
 HEALTH = dict(fire_hazard_per_s=4.0, fire_danger_per_s=15.0)
 COLLISION_DEBOUNCE_S = 1.0
+COLLISION_REPEAT_S = 10.0       # continuous contact with the same element counts again after this (v1.4)
 SURVIVOR_CONTACT_DEBOUNCE_S = 10.0
 FLIP_ANGLE_RAD = 1.0
 REPORT_RATE_LIMIT_S = 3.0
 # Timing rules (rules v1.2). Mission time, i.e. simulation seconds while the mission is RUNNING. 0 switches a rule off.
 REPORT_WINDOW_S = 10.0          # from "within the rescue radius with a clear line of sight" to the confirmed rescue
+REPORT_RESET_S = 5.0            # time outside the zone before the report window starts again (v1.4)
 IDLE_LIMIT_S = 60.0             # longest the rover may go without moving IDLE_MOVE_M
 IDLE_MOVE_M = 0.5
 TIME_WARNINGS_S = (300.0, 120.0, 60.0)
 # Clue-led rescue (rules v1.3). The +50 is paid only when the team's own /team/clues entry for the clue was
 # SEARCHING with a search area that holds the clue's person, published while the rover could not see that
-# person yet. The area that counts is the last one published before the rover first saw the person
+# person yet (v1.4: radius <= 8 m, at most 3 centre moves per clue). The area that counts is the last one published before the rover first saw the person
 # (clear line of sight within CLUE_SEEN_RANGE_M) after the clue was released.
-CLUE_MAX_SEARCH_RADIUS_M = 15.0  # a larger search_radius_m does not count
+CLUE_MAX_SEARCH_RADIUS_M = 8.0   # a larger search_radius_m does not count (a marker clue is good to ~2.5 m)
+CLUE_MAX_MOVES = 3               # the centre may jump (> CLUE_MOVE_M) at most this often per clue; more forfeits the +50
+CLUE_MOVE_M = 3.0                # a centre change smaller than this is a refinement, not a move
 CLUE_AREA_SLACK_M = 1.0          # the person may be this far outside the search circle
 CLUE_SEEN_RANGE_M = 15.0         # "the rover could see the person": clear line of sight within this range

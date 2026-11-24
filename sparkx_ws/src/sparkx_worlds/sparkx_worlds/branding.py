@@ -1,8 +1,24 @@
-"""Airoot x STEMLearn.AI branding panels for the SparkX arena.
+"""SparkX arena branding: posters, flags, start gate and start pad.
 
-Theme taken from the Airoot TurtleBot S1: ink body, crimson Airoot mark, off-white edge lines and
-the three diagonal slashes. Artwork comes from `models/sparkx_media/brand/` (see its README):
-the Airoot logo is a mask rasterized from the S1 CAD, the STEMLearn.AI logo is the official asset.
+Partners, in the order of the official header (left to right = priority 1..4):
+    1 IIIT Allahabad   2 STEMLearn.AI   3 Airoot   4 Presented at IIT Bombay Techfest
+Wherever several logos stand side by side they appear in that order, using the header strip itself
+(`models/sparkx_media/brand/header_strip_on_dark.png`). The single-partner posters around the start
+pad are shared out by priority: IIIT Allahabad 3 (two flags + the container board), STEMLearn.AI 2
+(two flags), Airoot 1 (the tent board); Techfest is credited on every strip ("Presented at").
+
+The texture file names are the slots the worlds already use, so new artwork needs no world
+regeneration (only `make_textures` and a rebuild):
+    brand_gantry.jpg          start gate over the spawn pad      SPARKX + header strip
+    basepad.jpg               spawn pad (ground paint)           RESCUE BASE + header strip
+    brand_banner.jpg          perimeter banners                  header strip
+    brand_billboard.jpg       perimeter billboards               SPARKX event + header strip
+    brand_flag_airoot.jpg     flags 1 and 3 at the pad           IIIT Allahabad
+    brand_flag_stemlearn.jpg  flags 2 and 4 at the pad           STEMLearn.AI
+    brand_stemlearn.jpg       container board at the pad         IIIT Allahabad
+    brand_airoot.jpg          relief-tent board at the pad       Airoot
+    robot_deck.jpg            the rover's deck (unchanged)       Airoot / STEMLearn.AI livery
+Artwork comes from `models/sparkx_media/brand/` (see its README).
 """
 import os
 
@@ -120,73 +136,102 @@ def _fit_text(d, text, max_w, size, weight='black'):
     return f, tb
 
 
+
+PARTNERS = ('1_iiita', '2_stemlearn', '3_airoot', '4_techfest')     # header order = priority
+
+
+def _trim(im):
+    a = np.asarray(im)[..., 3]
+    ys, xs = np.nonzero(a > 8)
+    return im.crop((xs.min(), ys.min(), xs.max() + 1, ys.max() + 1))
+
+
+def _fit(im, max_w, max_h):
+    k = min(max_w / im.width, max_h / im.height)
+    return im.resize((max(1, int(im.width * k)), max(1, int(im.height * k))), Image.LANCZOS)
+
+
+def partner(key, max_w, max_h):
+    """One partner logo from the header (artwork for dark backgrounds), fitted inside max_w x max_h."""
+    return _fit(_trim(Image.open(os.path.join(_brand_dir(), f'header_logo_{key}.png')).convert('RGBA')), max_w, max_h)
+
+
+def header_strip(max_w, max_h=10 ** 6):
+    """The official partner header (all four logos with their dividers, left to right), for dark backgrounds."""
+    return _fit(_trim(Image.open(os.path.join(_brand_dir(), 'header_strip_on_dark.png')).convert('RGBA')), max_w, max_h)
+
+
+def _event_title(img, x, y, size, sub=True, max_w=None):
+    """SPARKX + the three slashes (+ the subtitle in crimson underneath). Returns the bottom y."""
+    d = ImageDraw.Draw(img)
+    f, tb = _fit_text(d, EVENT, max_w or img.width, size)
+    d.text((x, y - tb[1]), EVENT, fill=OFFWHITE, font=f)
+    _slashes(img, x + (tb[2] - tb[0]) + int(size * 0.3), y + int(size * 0.07), y + (tb[3] - tb[1]),
+             width=max(5, size // 12), gap=int(size * 0.3))
+    y2 = y + (tb[3] - tb[1])
+    if sub:
+        f2, tb2 = _fit_text(d, EVENT_SUB, (max_w or img.width) - x, int(size * 0.36), 'bold')
+        y2 += int(size * 0.22)
+        d.text((x, y2 - tb2[1]), EVENT_SUB, fill=CRIMSON, font=f2)
+        y2 += tb2[3] - tb2[1]
+    return y2
+
+
 def banner():
-    """8 m x 2 m perimeter banner: Airoot | STEMLearn.AI on ink."""
+    """8 m x 2 m perimeter banner: the partner header, left to right, under the event name."""
     w, h = 2048, 512
     img = _panel(w, h, INK, 1)
     _edge_line(img, 26, 7, 46)
-    a = airoot(190)
-    s = stemlearn(128, on_dark=True)
-    gap = 110
-    total = a.width + gap + s.width
-    x = (w - total) // 2 - 120
-    img.alpha_composite(a, (x, (h - a.height) // 2))
     d = ImageDraw.Draw(img)
-    xd = x + a.width + gap // 2
-    d.line([(xd, h * 0.3), (xd, h * 0.7)], fill=OFFWHITE, width=5)
-    img.alpha_composite(s, (x + a.width + gap, (h - s.height) // 2))
-    _slashes(img, w - 330, int(h * 0.34), int(h * 0.66), width=16, gap=64)
+    f, tb = _fit_text(d, f'{EVENT}  ·  {EVENT_SUB}', w - 200, 64, 'bold')
+    d.text(((w - (tb[2] - tb[0])) / 2, 70 - tb[1]), f'{EVENT}  ·  {EVENT_SUB}', fill=OFFWHITE, font=f)
+    s = header_strip(w - 140, h - 200)
+    img.alpha_composite(s, ((w - s.width) // 2, 70 + (tb[3] - tb[1]) + (h - 70 - (tb[3] - tb[1]) - 40 - s.height) // 2))
     return _grime(img, 0.25, 11)
 
 
 def billboard():
-    """6 m x 3 m event billboard."""
+    """6 m x 3 m event billboard: SPARKX, the challenge, and the partner header across the bottom."""
     w, h = 2048, 1024
     img = _panel(w, h, INK, 2)
     _edge_line(img, 34, 9, 60)
-    d = ImageDraw.Draw(img)
-    f, tb = _fit_text(d, EVENT, w * 0.5, 300)
     tx = 150
-    d.text((tx, 130 - tb[1]), EVENT, fill=OFFWHITE, font=f)
-    _slashes(img, tx + (tb[2] - tb[0]) + 90, 150, 150 + (tb[3] - tb[1]), width=26, gap=92)
-    f2, tb2 = _fit_text(d, EVENT_SUB, w - 2 * tx, 104, 'bold')
-    y2 = 130 + (tb[3] - tb[1]) + 70
-    d.text((tx, y2 - tb2[1]), EVENT_SUB, fill=CRIMSON, font=f2)
-    d.line([(tx, y2 + (tb2[3] - tb2[1]) + 52), (w - tx, y2 + (tb2[3] - tb2[1]) + 52)], fill=OFFWHITE, width=5)
+    y = _event_title(img, tx, 120, 280, max_w=int(w * 0.62))
+    d = ImageDraw.Draw(img)
+    d.line([(tx, y + 50), (w - tx, y + 50)], fill=OFFWHITE, width=5)
     f3 = font(46, 'bold')
-    d.text((tx, h - 330), 'ROBOTICS & AI CHALLENGE  ·  POWERED BY', fill=(170, 170, 174), font=f3)
-    a = airoot(150)
-    s = stemlearn(104, on_dark=True)
-    img.alpha_composite(a, (tx, h - 245))
-    img.alpha_composite(s, (w - tx - s.width, h - 245 + (a.height - s.height) // 2))
+    d.text((tx, y + 80), 'ROBOTICS & AI CHALLENGE', fill=(170, 170, 174), font=f3)
+    s = header_strip(w - 2 * 90, h - y - 200)
+    img.alpha_composite(s, ((w - s.width) // 2, h - 80 - s.height))
     return _grime(img, 0.2, 12)
 
 
-def panel_airoot():
+def _single(key, seed, slashes=True):
+    """1024 x 512 board with one partner logo (the boards on the tent and the container)."""
     w, h = 1024, 512
-    img = _panel(w, h, INK, 3)
+    img = _panel(w, h, INK, seed)
     _edge_line(img, 22, 6, 40)
-    a = airoot(200)
-    if a.width > w - 250:
-        a = airoot(int(200 * (w - 250) / a.width))
-    _paste_c(img, a, w / 2 - 50, h / 2)
-    _slashes(img, w - 190, int(h * 0.36), int(h * 0.64), width=9, gap=38)
-    return _grime(img, 0.2, 13)
+    room = w - (300 if slashes else 120)
+    a = partner(key, room, h - 170)
+    _paste_c(img, a, (w / 2 - 70) if slashes else w / 2, h / 2)
+    if slashes:
+        _slashes(img, w - 190, int(h * 0.36), int(h * 0.64), width=9, gap=38)
+    return _grime(img, 0.2, seed + 10)
 
 
-def panel_stemlearn():
-    w, h = 1024, 512
-    img = _panel(w, h, OFFWHITE, 4)
-    _edge_line(img, 22, 6, 40, color=NAVY)
-    s = stemlearn(122)
-    if s.width > w - 150:
-        s = stemlearn(int(122 * (w - 150) / s.width))
-    _paste_c(img, s, w / 2, h / 2)
-    return _grime(img, 0.2, 14)
+def panel_airoot():
+    """Relief-tent board (slot brand_airoot): Airoot, priority 3."""
+    return _single('3_airoot', 3)
+
+
+def panel_iiita():
+    """Container board (slot brand_stemlearn): IIIT Allahabad, priority 1."""
+    return _single('1_iiita', 4, slashes=False)
 
 
 def basepad():
-    """8 m x 8 m rescue-base start pad painted on scanned concrete (replaces the generic helipad)."""
+    """8 m x 8 m rescue-base start pad (the robot spawns on it) painted on scanned concrete:
+    RESCUE BASE, SPARKX and the partner header, left to right."""
     px = 1024
     conc = pbr.load('dirty_concrete', 'Diffuse', 512)
     base = pbr.tile_image(conc, 2, 2).convert('RGBA')
@@ -199,15 +244,17 @@ def basepad():
         sx, sy = (1 if k in (0, 3) else -1), (1 if k in (0, 1) else -1)
         x, y = (30 if sx > 0 else px - 30), (30 if sy > 0 else px - 30)
         d.line([(x + sx * 110, y), (x, y), (x, y + sy * 110)], fill=OFFWHITE + (255,), width=18, joint='curve')
-    mark = airoot(250, part='mark')
-    _paste_c(paint, mark, c, c - 44)
-    word = airoot(84, part='wordmark')
-    _paste_c(paint, word, c, c + 150)
     f = font(58)
     tb = d.textbbox((0, 0), 'RESCUE BASE', font=f)
     d.text((c - (tb[2] - tb[0]) / 2, 215 - tb[1]), 'RESCUE BASE', fill=OFFWHITE + (255,), font=f)
-    s = stemlearn(60, on_dark=True)
-    _paste_c(paint, s, c, px - 222)
+    f2 = font(150)
+    tb = d.textbbox((0, 0), EVENT, font=f2)
+    d.text((c - (tb[2] - tb[0]) / 2, c - 150 - tb[1]), EVENT, fill=OFFWHITE + (255,), font=f2)
+    s = header_strip(int(px * 0.70))                         # the header is artwork for a dark ground:
+    bw, bh = s.width + 56, s.height + 44                      # paint an ink band under it
+    d.rounded_rectangle([c - bw / 2, c + 120 - bh / 2, c + bw / 2, c + 120 + bh / 2], radius=18,
+                        fill=INK + (255,), outline=OFFWHITE + (255,), width=5)
+    _paste_c(paint, s, c, c + 120)
     # worn paint: flake the alpha, then let the concrete shading show through
     wear = pbr.fbm(px, 6, 21)
     alpha = np.asarray(paint, np.float32)[..., 3] * np.clip(0.5 + wear * 1.1, 0, 1)
@@ -234,48 +281,43 @@ def robot_deck():
     return img.convert('RGB')
 
 
+
 def gantry():
-    """7 m x 1 m start-gate header."""
+    """7 m x 1 m start-gate header over the spawn pad: SPARKX, then the partner header left to right."""
     w, h = 2048, 292
     img = _panel(w, h, INK, 7)
     _edge_line(img, 14, 5, 30)
     d = ImageDraw.Draw(img)
-    f = font(120)
+    f = font(104)
     tb = d.textbbox((0, 0), EVENT, font=f)
-    d.text((70, h / 2 - (tb[3] - tb[1]) / 2 - tb[1]), EVENT, fill=OFFWHITE, font=f)
-    x = 70 + (tb[2] - tb[0]) + 40
-    x = _slashes(img, x, int(h * 0.3), int(h * 0.7), width=11, gap=40) + 40
-    f2 = font(50, 'bold')
-    d.text((x, h / 2 - 30), EVENT_SUB, fill=CRIMSON, font=f2)
-    a = airoot(92)
-    s = stemlearn(62, on_dark=True)
-    img.alpha_composite(s, (w - 60 - s.width, (h - s.height) // 2))
-    img.alpha_composite(a, (w - 60 - s.width - 50 - a.width, (h - a.height) // 2))
+    d.text((60, h / 2 - (tb[3] - tb[1]) / 2 - tb[1]), EVENT, fill=OFFWHITE, font=f)
+    x = _slashes(img, 60 + (tb[2] - tb[0]) + 30, int(h * 0.32), int(h * 0.68), width=10, gap=36) + 40
+    s = header_strip(w - x - 50, h - 70)
+    img.alpha_composite(s, (x + (w - x - 50 - s.width) // 2, (h - s.height) // 2))
     return _grime(img, 0.15, 17)
 
 
-def flag(which):
-    """0.8 m x 3.0 m feather-flag sail (portrait)."""
+def flag(key):
+    """0.8 m x 3.0 m feather-flag sail (portrait): one partner, upright at the top, along the sail below."""
     w, h = 512, 1920
-    dark = which == 'airoot'
-    img = _panel(w, h, INK if dark else OFFWHITE, 8 if dark else 9)
-    art = (airoot(150) if dark else stemlearn(118)).rotate(90, expand=True)
-    _paste_c(img, art, w / 2, h * 0.55)
-    if dark:
-        _paste_c(img, airoot(250, part='mark'), w / 2, h * 0.14)
-        d = ImageDraw.Draw(img)
-        for k in range(3):
-            d.line([(150 + k * 70, h - 120), (230 + k * 70, h - 260)], fill=OFFWHITE, width=22)
+    img = _panel(w, h, INK, 8 if key == '1_iiita' else 9)
+    if key == '1_iiita':
+        # the IIIT Allahabad card is a wide badge: run it along the sail
+        _paste_c(img, partner(key, 1500, w - 90).rotate(90, expand=True), w / 2, h * 0.5)
     else:
-        _paste_c(img, stemlearn(260, part='icon'), w / 2, h * 0.14)
+        _paste_c(img, partner(key, w - 110, 420), w / 2, h * 0.16)
+        _paste_c(img, partner(key, 1150, w - 130).rotate(90, expand=True), w / 2, h * 0.62)
+    d = ImageDraw.Draw(img)
+    for k in range(3):
+        d.line([(150 + k * 70, h - 70), (230 + k * 70, h - 190)], fill=OFFWHITE, width=22)
     return _grime(img, 0.15, 18)
 
 
 def build_all(out_dir):
     jobs = {'brand_banner.jpg': banner, 'brand_billboard.jpg': billboard, 'brand_airoot.jpg': panel_airoot,
-            'brand_stemlearn.jpg': panel_stemlearn, 'basepad.jpg': basepad, 'robot_deck.jpg': robot_deck,
-            'brand_gantry.jpg': gantry, 'brand_flag_airoot.jpg': lambda: flag('airoot'),
-            'brand_flag_stemlearn.jpg': lambda: flag('stemlearn')}
+            'brand_stemlearn.jpg': panel_iiita, 'basepad.jpg': basepad, 'robot_deck.jpg': robot_deck,
+            'brand_gantry.jpg': gantry, 'brand_flag_airoot.jpg': lambda: flag('1_iiita'),
+            'brand_flag_stemlearn.jpg': lambda: flag('2_stemlearn')}
     for name, fn in jobs.items():
         fn().convert('RGB').save(os.path.join(out_dir, name), quality=90, optimize=True)
     # normal / roughness of the pad follow the concrete it is painted on
